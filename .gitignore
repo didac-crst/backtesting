@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# environment files
+.env
+.env.enc
+
+# Virtual environment
+.venv/
+
+# Database
+*.db
+
+# Data
+*.feather
+*.csv
+*.pickle
+*.pkl
+
+# Models
+*.h5
+
+# Logs
+*.log
+
+# Other
+.DS_Store
