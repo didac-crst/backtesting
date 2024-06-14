@@ -452,6 +452,14 @@ class Portfolio(Asset):
             return self.balance / price
         else:
             return (self.assets[symbol].balance * self.assets[symbol].price) / price
+    
+    @property
+    def liquidity_ratio(self) -> float:
+        """
+        Property to get the liquidity ratio of the portfolio.
+
+        """
+        return self.balance / self.equity_value
 
     @property
     def historical_capital(self) -> pd.DataFrame:
