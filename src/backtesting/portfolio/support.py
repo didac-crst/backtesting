@@ -3,6 +3,7 @@ from typing import Optional, Callable, Union
 
 import numpy as np
 import prettytable as pt
+from faker import Faker
 
 
 def now_ms() -> int:
@@ -20,18 +21,25 @@ def check_positive(func: Callable) -> Callable:
     Mainly used to check if the amount of a transaction is positive.
 
     """
-
     def wrapper(self, *args, **kwargs):
         for i, arg in enumerate(args):
-            if isinstance(arg, (int, float)) and arg <= 0:
+            if isinstance(arg, (int, float)) and not isinstance(arg, bool) and arg <= 0:
                 raise ValueError(f"Argument {i+1} must be positive")
         for key, arg in kwargs.items():
-            if isinstance(arg, (int, float)) and arg <= 0:
+            if isinstance(arg, (int, float)) and not isinstance(arg, bool) and arg <= 0:
                 raise ValueError(f"Argument '{key}' must be positive")
         return func(self, *args, **kwargs)
 
     return wrapper
 
+def get_random_name() -> str:
+    """
+    Function to generate a fake name.
+
+    """
+    fake = Faker()
+    name = fake.name().replace(' ', '_').replace('.', '').lower()
+    return name
 
 # Display functions -----------------------------------------------------------
 

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Literal
+from typing import Optional, Literal, Union
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,6 +18,7 @@ from .support import (
     thousands,
     to_percent,
     display_pretty_table,
+    get_random_name
 )
 
 VerboseType = Literal["silent", "action", "status", "verbose"]
@@ -30,6 +31,7 @@ class Portfolio(Asset):
 
     """
 
+    name: str = ""
     commission_trade: float = 0.0
     commission_transfer: float = 0.0
     frequency_displayed: str = "1h"
@@ -39,8 +41,17 @@ class Portfolio(Asset):
     def __post_init__(self) -> None:
         super().__post_init__()
         self.set_verbosity("verbose")
+        self.set_portfolio_name()
         self.assets = dict()
         self.Ledger = Ledger(portfolio_symbol=self.symbol)
+    
+    def set_portfolio_name(self) -> None:
+        """
+        Method to fill the name of the portfolio if it is empty.
+
+        """
+        if self.name == "":
+            self.name = get_random_name()
 
     def set_verbosity(self, type: VerboseType) -> None:
         """
@@ -59,7 +70,7 @@ class Portfolio(Asset):
         elif type == "silent":
             self.verbose_status = False
             self.verbose_action = False
-
+        
     @property
     def _assets_table(self) -> str:
         """
@@ -75,8 +86,10 @@ class Portfolio(Asset):
                 "Transactions",
                 "Total traded",
                 "Currency growth",
+                "Hold gains",
             ]
         ]
+        hold_gains = self._hold_gains_assets
         for asset_symbol, Currency in self.assets.items():
             data.append(
                 [
@@ -85,6 +98,7 @@ class Portfolio(Asset):
                     display_integer(self.transactions_count(asset_symbol)),
                     display_price(self.transactions_sum(asset_symbol), self.symbol),
                     display_percentage(self.get_asset_growth(asset_symbol)),
+                    display_price(hold_gains[asset_symbol], self.symbol),
                 ]
             )
         return display_pretty_table(data, padding=6)
@@ -94,8 +108,9 @@ class Portfolio(Asset):
         Dunder method to display the portfolio information as a string.
 
         """
+        self.calculate_hold_gains_assets()
         text = (
-            f"Portfolio:\n"
+            f"Portfolio ({self.name}):\n"
             f"  -> Symbol = {self.symbol}\n"
             f"  -> Transfer commission = {display_percentage(self.commission_transfer)}\n"
             f"  -> Trade commission = {display_percentage(self.commission_trade)}\n"
@@ -110,12 +125,15 @@ class Portfolio(Asset):
             f"  -> Equity value = {display_price(self.equity_value, self.symbol)}\n"
             f"  -> Gains = {display_price(self.gains, self.symbol)}\n"
             f"  -> ROI = {display_percentage(self.roi)}\n"
+            f"  -> Hold Gains (Theoretical) = {display_price(self.hold_gains, self.symbol)}\n"
+            f"  -> Hold ROI (Theoretical) = {display_percentage(self.hold_roi)}\n"
+            f"  -> ROI Performance (vs Hold) = {display_percentage(self.roi_vs_hold_roi)}\n"
             f"  -> Assets:"
         )
         if len(self.assets) > 0:
-            text += f"\n{self._assets_table}\n"
+            text += f"\n{self._assets_table}\n\n"
         else:
-            text += " None\n"
+            text += " None\n\n"
         return text
 
     def print_portfolio(self) -> None:
@@ -224,16 +242,28 @@ class Portfolio(Asset):
         self.print_portfolio()
 
     @check_positive
-    def withdraw(self, amount: float, timestamp: Optional[int] = None) -> None:
+    def withdraw(self, amount: float, relative_amount: bool= False, timestamp: Optional[int] = None) -> None:
         """
         Method to withdraw an amount from the portfolio.
 
         """
+        if relative_amount:
+            gross_amount = self.balance * amount
+            amount = gross_amount / (1 + self.commission_transfer)
         if timestamp is None:
             timestamp = now_ms()
         commission = amount * self.commission_transfer
         gross_amount = amount + commission
-        self.check_amount(gross_amount)
+        try:
+            self.check_amount(gross_amount)
+        except ValueError as e:
+            # Due to some calculations it could happen that the amount is slightly higher than the balance
+            print('Exception')
+            if gross_amount < self.balance * 1.00001:
+                gross_amount = self.balance
+            # If the amount is still higher, raise the error
+            else:
+                raise e
         self.commissions_sum += commission
         self.balance -= gross_amount
         # Record the transaction in the ledger for the portfolio currency
@@ -250,15 +280,16 @@ class Portfolio(Asset):
 
     @check_positive
     def buy(
-        self, symbol: str, amount_base: float, timestamp: Optional[int] = None
+        self, symbol: str, amount_quote: float, timestamp: Optional[int] = None
     ) -> None:
         """
         Method to buy an amount of an asset in the portfolio.
 
         """
+        price = self.assets[symbol].price
         if timestamp is None:
             timestamp = now_ms()
-        amount_quote = amount_base * self.assets[symbol].price
+        amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
         gross_amount_quote = amount_quote + commission_quote
         self.check_amount(gross_amount_quote)
@@ -291,15 +322,18 @@ class Portfolio(Asset):
 
     @check_positive
     def sell(
-        self, symbol: str, amount_base: float, timestamp: Optional[int] = None
+        self, symbol: str, amount_quote: float, timestamp: Optional[int] = None
     ) -> None:
         """
         Method to sell an amount of an asset in the portfolio.
 
         """
+        price = self.assets[symbol].price
+        # if relative_amount:
+        #     amount = self.get_balance(symbol=symbol) * amount
         if timestamp is None:
             timestamp = now_ms()
-        amount_quote = amount_base * self.assets[symbol].price
+        amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
         self.check_amount(commission_quote)
         net_amount_quote = amount_quote - commission_quote
@@ -484,6 +518,14 @@ class Portfolio(Asset):
         prices_df["Timestamp"] = pd.to_datetime(prices_df["Timestamp"], unit="ms")
         prices_df.drop(columns=self.symbol, inplace=True)
         return prices_df.set_index("Timestamp")
+    
+    @property
+    def get_last_prices(self) -> dict[str, float]:
+        """
+        Method to get the last price of an asset in the portfolio.
+
+        """
+        return {symbol: self.assets[symbol].price for symbol in self.assets_list}
 
     @property
     def historical_transactions(self) -> pd.DataFrame:
@@ -510,13 +552,31 @@ class Portfolio(Asset):
         )
         return transactions_df.set_index("Timestamp")
 
+    def calculate_historical_equity(self) -> None:
+        """
+        Method to calculate the historical equity of the portfolio.
+
+        """
+        self._historical_equity = self.Ledger.equity_df
+
     @property
     def historical_equity(self) -> pd.DataFrame:
         """
         Property to get the historical equity of the portfolio as a DataFrame.
 
         """
-        return self.Ledger.equity_df
+        self.calculate_historical_equity()
+        return self._historical_equity
+    
+    def calculate_ledger_equity(self) -> None:
+        """
+        Method to calculate the historical equity of the portfolio.
+
+        """
+        equity_df = self.Ledger.equity_df
+        equity_df.reset_index(inplace=True)
+        equity_df["Timestamp"] = pd.to_datetime(equity_df["Timestamp"], unit="ms")
+        self._ledger_equity = equity_df.set_index("Timestamp")
 
     @property
     def ledger_equity(self) -> pd.DataFrame:
@@ -524,10 +584,19 @@ class Portfolio(Asset):
         Property to get the historical equity of the portfolio as a DataFrame with readable timestamps.
 
         """
-        equity_df = self.historical_equity
-        equity_df.reset_index(inplace=True)
-        equity_df["Timestamp"] = pd.to_datetime(equity_df["Timestamp"], unit="ms")
-        return equity_df.set_index("Timestamp")
+        self.calculate_ledger_equity()
+        return self._ledger_equity
+    
+    @property
+    def ledger_equity_share(self) -> pd.DataFrame:
+        """
+        Property to get the historical equity of the portfolio as a DataFrame with the share of each asset.
+
+        """
+        equity_df = self._ledger_equity
+        equity_df= equity_df.div(equity_df['Total'], axis=0)
+        equity_df.drop(columns=["Total"], inplace=True)
+        return equity_df
 
     @property
     def gains(self) -> float:
@@ -556,9 +625,102 @@ class Portfolio(Asset):
         """
         investment = self.invested_capital
         if investment > 0:
-            return self.gains / investment
+            return (self.gains / investment).round(5)
         else:
             return 0.0
+
+    def calculate_historical_theoretical_hold_equity(self) -> None:
+        """
+        Method to calculate the theoretical gains of holding the assets in the portfolio.
+
+        """
+        prices = self.ledger_prices
+        # Need to recalculate the equity to have the correct values
+        self.calculate_ledger_equity()
+        equity = self._ledger_equity.copy()
+        # No price for portfolio currency, set it to 1
+        prices[self.symbol] = 1
+        equity.drop(columns=["Total"], inplace=True, errors="ignore")
+        initial_price = prices.iloc[0]
+        initial_assets_quote = equity.iloc[0]
+        initial_assets_base = initial_assets_quote / initial_price
+        # As it is an equity calculation, we don't need to consider the commissions
+        # They are already debited after the first transaction
+        historical_assets_quote = initial_assets_base * prices
+        self._historical_theoretical_hold_equity = historical_assets_quote.sum(axis=1)
+    
+    @property
+    def historical_theoretical_hold_equity(self) -> pd.Series:
+        """
+        Property to provide the theoretical gains of holding the assets in the portfolio.
+
+        """
+        self.calculate_historical_theoretical_hold_equity()
+        return self._historical_theoretical_hold_equity
+
+    def calculate_hold_gains_assets(self) -> pd.Series:
+        """
+        Method to calculate the theoretical gains of holding the assets in the portfolio.
+
+        """
+        prices = self.ledger_prices
+        # Need to recalculate the equity to have the correct values
+        self.calculate_ledger_equity()
+        equity = self._ledger_equity.copy()
+        if (len(prices) > 0) & (len(equity) > 0):
+            # No price for portfolio currency, set it to 1
+            prices[self.symbol] = 1
+            equity.drop(columns=["Total"], inplace=True, errors="ignore")
+            initial_assets_quote = equity.iloc[0]
+            initial_prices = prices.iloc[0]
+            final_prices = prices.iloc[-1]
+            initial_assets_base = (initial_assets_quote / initial_prices)
+            # Initial commissions can't be extracted from total_commissions
+            # When trading, total commissions increases
+            commissions = self.invested_capital - initial_assets_quote.sum()
+            # Commissions are only applied to the portfolio currency at the initial point
+            initial_assets_quote[self.symbol] = initial_assets_quote[self.symbol] + commissions
+            # Final commissions are not part of the final assets
+            final_assets_quote = initial_assets_base * final_prices
+            hold_gains = final_assets_quote - initial_assets_quote
+        else:
+            assets_list = [self.symbol, *self.assets_list]
+            hold_gains = pd.Series([0.0] * len(assets_list), index=assets_list)
+        self._hold_gains_assets = hold_gains
+    
+    @property
+    def hold_gains_assets(self) -> pd.Series:
+        """
+        Property to provide the theoretical gains of holding the assets in the portfolio.
+
+        """
+        self.calculate_hold_gains_assets()
+        return self._hold_gains_assets
+    
+    @property
+    def hold_gains(self) -> float:
+        """
+        Property to provide the sum of the theoretical gains of holding the assets in the portfolio.
+
+        """
+        return self._hold_gains_assets.sum()
+
+    @property
+    def hold_roi(self) -> float:
+        """
+        Property to provide the Return on Investment (ROI) of theoretical holding the assets in the portfolio.
+
+        """
+        return (self.hold_gains / self.invested_capital).round(5)
+    
+    @property
+    def roi_vs_hold_roi(self) -> float:
+        """
+        Property to provide the difference between the ROI and the theoretical holding ROI.
+
+        """
+        return self.roi - self.hold_roi
+
 
     def get_asset_growth(self, symbol: str) -> float:
         """
@@ -579,7 +741,7 @@ class Portfolio(Asset):
         reference = series_positive.iloc[0]
         return (series / reference) - 1
 
-    def resample_data(self, df: pd.DataFrame) -> pd.DataFrame:
+    def resample_data(self, df: pd.DataFrame, average: bool = False) -> pd.DataFrame:
         """
         Method to resample the data to the frequency displayed.
 
@@ -589,7 +751,10 @@ class Portfolio(Asset):
         freq = self.frequency_displayed
         # df.index = pd.to_datetime(df.index, unit="ms")
         df.index = pd.DatetimeIndex(pd.to_datetime(df.index, unit="ms"))
-        return df.resample(freq).last()
+        if average:
+            return df.resample(freq).mean()
+        else:
+            return df.resample(freq).last()
 
     def plot_portfolio(self) -> None:
         """
@@ -597,6 +762,7 @@ class Portfolio(Asset):
 
         """
         # Create a figure with multiple subplots
+        self.calculate_historical_equity()
         symbol = self.symbol
         num_plots = len(self.assets_list) + 1
         h_size = num_plots * 5
@@ -605,7 +771,7 @@ class Portfolio(Asset):
         )
 
         # Plot the equity on the first subplot
-        historical_equity = self.historical_equity
+        historical_equity = self._historical_equity
         resampled_historical_equity = self.resample_data(historical_equity)
         datetime = resampled_historical_equity.index
         total_equity = resampled_historical_equity["Total"]
@@ -646,19 +812,23 @@ class Portfolio(Asset):
         # Show the plot
         plt.show()
 
-    def plot_benchmark(self) -> None:
+    def plot_benchmark(self, fig_ax: Optional[tuple] = None) -> None:
         """
         Method to plot the portfolio equity and the assets' change over time.
 
         """
-        # Create a figure with multiple subplots
-        fig = plt.figure(figsize=(10, 5))
+        if fig_ax is not None:
+            fig, ax = fig_ax
+        else:
+            # Create a figure with multiple subplots
+            fig = plt.figure(figsize=(10, 5))
+            # Create an Axes object for the figure
+            ax = fig.add_subplot(111)
 
-        # Create an Axes object for the figure
-        ax = fig.add_subplot(111)
-
-        # Plot the equity on the first subplot
-        historical_equity = self.historical_equity
+        # EQUITY
+        # Need to recalculate the equity to have the correct values
+        self.calculate_historical_equity()
+        historical_equity = self._historical_equity
         resampled_historical_equity = self.resample_data(historical_equity)
         equity = self.normalize_to_growth(resampled_historical_equity["Total"])
         datetime = equity.index
@@ -668,7 +838,17 @@ class Portfolio(Asset):
         ax.fill_between(datetime, equity, where=(equity > 0), color="green", alpha=0.2)  # type: ignore
         ax.fill_between(datetime, equity, where=(equity < 0), color="red", alpha=0.2)  # type: ignore
 
-        # Plot the asset prices on the next ones
+        # THEORETICAL HOLD EQUITY
+        # Need to recalculate the theoretical hold equity to have the correct values
+        self.calculate_historical_theoretical_hold_equity()
+        theoretical_hold_equity = self._historical_theoretical_hold_equity
+        resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity)
+        theoretical_equity = self.normalize_to_growth(resampled_theoretical_hold_equity)
+        datetime = theoretical_equity.index
+        label = f"Hold-Equity Change ({display_percentage(self.hold_roi)})"
+        ax.plot(datetime, theoretical_equity, label=label, color="blue", linewidth=2, alpha=0.7)
+
+        # CURRENCY PRICES
         historical_prices = self.historical_prices_pivot
         resampled_historical_prices = self.resample_data(historical_prices)
         for asset in self.assets_list:
@@ -678,6 +858,7 @@ class Portfolio(Asset):
                 f"{asset} Change ({display_percentage(self.get_asset_growth(asset))})"
             )
             ax.plot(datetime, asset_prices, label=label, linewidth=1, alpha=0.8)
+        ax.set_title("Equity and Assets Change Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Growth")
         ax.grid(True)
@@ -693,5 +874,64 @@ class Portfolio(Asset):
         ax.grid(which="major", alpha=0.5)
         ax.legend()
 
-        # Show the plot
+        if fig_ax is None:
+            # Show the plot
+            plt.show()
+    
+    def plot_assets_share(self, fig_ax: Optional[tuple] = None) -> None:
+        """
+        Method to plot the portfolio equity and the assets' share over time.
+
+        """
+        if fig_ax is not None:
+            fig, ax = fig_ax
+        else:
+            # Create a figure with multiple subplots
+            fig = plt.figure(figsize=(10, 5))
+            # Create an Axes object for the figure
+            ax = fig.add_subplot(111)
+
+        # Plot the equity on the first subplot
+        # Need to recalculate the equity to have the correct values
+        self.calculate_ledger_equity()
+        equity_share_df = self.ledger_equity_share
+        resampled_equity_share_df = self.resample_data(equity_share_df, average=True)
+        resampled_equity_share_df_cumsum = resampled_equity_share_df.cumsum(axis=1)
+        # Reverse the columns to have a proper display
+        resampled_equity_share_df_cumsum = resampled_equity_share_df_cumsum.iloc[:, ::-1]
+        for column in resampled_equity_share_df_cumsum.columns:
+            ax.fill_between(resampled_equity_share_df_cumsum.index, resampled_equity_share_df_cumsum[column], label=column)
+        ax.set_title("Equity Share Over Time")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Equity Share")
+        ax.grid(True)
+        # To enable the grid for minor ticks
+        ax.xaxis.set_minor_locator(AutoMinorLocator())
+        ax.yaxis.set_minor_locator(AutoMinorLocator())
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+        ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
+        plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
+        ax.grid(which="both")
+        ax.grid(which="minor", alpha=0.3)
+        ax.grid(which="major", alpha=0.5)
+        ax.legend()
+
+        if fig_ax is None:
+            # Show the plot
+            plt.show()
+
+    def plot_summary(self) -> None:
+        """
+        Method to plot the portfolio summary.
+
+        """
+        # Create an Axes object for the figure
+        fig, ax = plt.subplots(
+            nrows=2, ncols=1, figsize=(10, 10), sharex=True
+        )
+
+        self.plot_benchmark((fig, ax[0]))
+        self.plot_assets_share((fig, ax[1]))
+
         plt.show()
