@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, Literal, Union
 
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator, FuncFormatter
 import matplotlib.dates as mdates
@@ -554,11 +555,14 @@ class Portfolio(Asset):
         Property to get the historical transactions as a DataFrame with readable timestamps.
 
         """
-        transactions_df = self.historical_transactions
+        transactions_df=self.historical_transactions
         transactions_df["Timestamp"] = pd.to_datetime(
             transactions_df["Timestamp"], unit="ms"
         )
-        return transactions_df.set_index("Timestamp")
+        transactions_df.loc[transactions_df['Action']=='SELL', 'Traded'] = -transactions_df['Traded']
+        transactions_pivot = transactions_df.pivot_table(index='Timestamp', columns='Symbol', values='Traded', aggfunc='sum')
+        transactions_pivot.fillna(0, inplace=True)
+        return transactions_pivot
 
     def calculate_historical_equity(self) -> None:
         """
@@ -581,7 +585,8 @@ class Portfolio(Asset):
         Method to calculate the historical equity of the portfolio.
 
         """
-        equity_df = self.Ledger.equity_df
+        self.calculate_historical_equity()
+        equity_df = self._historical_equity.copy()
         equity_df.reset_index(inplace=True)
         equity_df["Timestamp"] = pd.to_datetime(equity_df["Timestamp"], unit="ms")
         self._ledger_equity = equity_df.set_index("Timestamp")
@@ -749,20 +754,23 @@ class Portfolio(Asset):
         reference = series_positive.iloc[0]
         return (series / reference) - 1
 
-    def resample_data(self, df: pd.DataFrame, average: bool = False) -> pd.DataFrame:
+    def resample_data(self, df: pd.DataFrame, type: Literal['last', 'mean', 'sum'], freq: Optional[str] = None) -> pd.DataFrame:
         """
         Method to resample the data to the frequency displayed.
 
         This is useful to have a more readable plot and less computational cost.
 
         """
-        freq = self.frequency_displayed
+        if freq is None:
+            freq = self.frequency_displayed
         # df.index = pd.to_datetime(df.index, unit="ms")
         df.index = pd.DatetimeIndex(pd.to_datetime(df.index, unit="ms"))
-        if average:
+        if type == 'mean':
             return df.resample(freq).mean()
-        else:
+        elif type == 'last':
             return df.resample(freq).last()
+        elif type == 'sum':
+            return df.resample(freq).sum()
 
     def plot_portfolio(self) -> None:
         """
@@ -775,12 +783,12 @@ class Portfolio(Asset):
         num_plots = len(self.assets_list) + 1
         h_size = num_plots * 5
         fig, ax = plt.subplots(
-            nrows=num_plots, ncols=1, figsize=(10, h_size), sharex=True
+            nrows=num_plots, ncols=1, figsize=(15, h_size), sharex=True
         )
 
         # Plot the equity on the first subplot
         historical_equity = self._historical_equity
-        resampled_historical_equity = self.resample_data(historical_equity)
+        resampled_historical_equity = self.resample_data(historical_equity, type='last')
         datetime = resampled_historical_equity.index
         total_equity = resampled_historical_equity["Total"]
         label = f"Equity (Gains: {display_price(self.gains, symbol)})"
@@ -791,12 +799,12 @@ class Portfolio(Asset):
 
         # Plot the asset prices on the next ones
         historical_prices = self.historical_prices_pivot
-        resampled_historical_prices = self.resample_data(historical_prices)
+        resampled_historical_prices = self.resample_data(historical_prices, type='last')
         ax_counter = 1
         for asset in self.assets_list:
             datetimes = resampled_historical_prices.index
             prices = resampled_historical_prices[asset]
-            label = f"{asset} Price (Change: {display_percentage(self.get_asset_growth(asset))})"
+            label = f"{asset} Price ({display_percentage(self.get_asset_growth(asset))})"
             ax[ax_counter].plot(datetimes, prices, label=label)
             ax[ax_counter].set_ylabel(f"Price ({symbol})")
             ax[ax_counter].set_title(f"{asset} Price Over Time")
@@ -815,7 +823,7 @@ class Portfolio(Asset):
             ax[i].grid(which="both")
             ax[i].grid(which="minor", alpha=0.3)
             ax[i].grid(which="major", alpha=0.5)
-            ax[i].legend()
+            ax[i].legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
 
         # Show the plot
         plt.show()
@@ -829,18 +837,20 @@ class Portfolio(Asset):
             fig, ax = fig_ax
         else:
             # Create a figure with multiple subplots
-            fig = plt.figure(figsize=(10, 5))
+            fig = plt.figure(figsize=(15, 5))
             # Create an Axes object for the figure
             ax = fig.add_subplot(111)
+            # Need to recalculate the equity to have the correct values
+            self.calculate_historical_equity()
+        
+        ax.axhline(y=0, color='black', linewidth=1)
 
         # EQUITY
-        # Need to recalculate the equity to have the correct values
-        self.calculate_historical_equity()
         historical_equity = self._historical_equity
-        resampled_historical_equity = self.resample_data(historical_equity)
+        resampled_historical_equity = self.resample_data(historical_equity, type='last')
         equity = self.normalize_to_growth(resampled_historical_equity["Total"])
         datetime = equity.index
-        label = f"Equity Change ({display_percentage(self.roi)})"
+        label = f"Equity ({display_percentage(self.roi)})"
         ax.plot(datetime, equity, label=label, color="black", linewidth=1)
         # Fill areas where y < 0 with red and y > 0 with green
         ax.fill_between(datetime, equity, where=(equity > 0), color="green", alpha=0.2)  # type: ignore
@@ -850,20 +860,20 @@ class Portfolio(Asset):
         # Need to recalculate the theoretical hold equity to have the correct values
         self.calculate_historical_theoretical_hold_equity()
         theoretical_hold_equity = self._historical_theoretical_hold_equity
-        resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity)
+        resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity, type='last')
         theoretical_equity = self.normalize_to_growth(resampled_theoretical_hold_equity)
         datetime = theoretical_equity.index
-        label = f"Hold-Equity Change ({display_percentage(self.hold_roi)})"
+        label = f"Hold ({display_percentage(self.hold_roi)})"
         ax.plot(datetime, theoretical_equity, label=label, color="blue", linewidth=2, alpha=0.7)
 
         # CURRENCY PRICES
         historical_prices = self.historical_prices_pivot
-        resampled_historical_prices = self.resample_data(historical_prices)
+        resampled_historical_prices = self.resample_data(historical_prices, type='last')
         for asset in self.assets_list:
             asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
             datetime = asset_prices.index
             label = (
-                f"{asset} Change ({display_percentage(self.get_asset_growth(asset))})"
+                f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
             )
             ax.plot(datetime, asset_prices, label=label, linewidth=1, alpha=0.8)
         ax.set_title("Equity and Assets Change Over Time")
@@ -880,7 +890,7 @@ class Portfolio(Asset):
         ax.grid(which="both")
         ax.grid(which="minor", alpha=0.3)
         ax.grid(which="major", alpha=0.5)
-        ax.legend()
+        ax.legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
 
         if fig_ax is None:
             # Show the plot
@@ -895,15 +905,23 @@ class Portfolio(Asset):
             fig, ax = fig_ax
         else:
             # Create a figure with multiple subplots
-            fig = plt.figure(figsize=(10, 5))
+            fig = plt.figure(figsize=(15, 5))
             # Create an Axes object for the figure
             ax = fig.add_subplot(111)
+            # Need to recalculate the equity to have the correct values
+            self.calculate_ledger_equity()
 
-        # Plot the equity on the first subplot
-        # Need to recalculate the equity to have the correct values
-        self.calculate_ledger_equity()
         equity_share_df = self.ledger_equity_share
-        resampled_equity_share_df = self.resample_data(equity_share_df, average=True)
+        # Reorder the columns to have the portfolio currency at the end
+        columns = equity_share_df.columns.tolist()
+        # Find the index of self.symbol in the columns list
+        symbol_index = columns.index(self.symbol)
+        # Pop the element at the found index
+        columns.pop(symbol_index)
+        # Append self.symbol to the end of the list
+        columns.append(self.symbol)
+        equity_share_df = equity_share_df[columns]
+        resampled_equity_share_df = self.resample_data(equity_share_df, type='mean')
         resampled_equity_share_df_cumsum = resampled_equity_share_df.cumsum(axis=1)
         # Reverse the columns to have a proper display
         resampled_equity_share_df_cumsum = resampled_equity_share_df_cumsum.iloc[:, ::-1]
@@ -923,7 +941,95 @@ class Portfolio(Asset):
         ax.grid(which="both")
         ax.grid(which="minor", alpha=0.3)
         ax.grid(which="major", alpha=0.5)
-        ax.legend()
+        ax.legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
+
+        if fig_ax is None:
+            # Show the plot
+            plt.show()
+    
+    def plot_transactions(self, fig_ax: Optional[tuple] = None) -> None:
+        """
+        Method to plot the historical transactions of the portfolio.
+
+        """
+        if fig_ax is not None:
+            fig, ax = fig_ax
+        else:
+            # Create a figure with multiple subplots
+            fig = plt.figure(figsize=(15, 5))
+            # Create an Axes object for the figure
+            ax = fig.add_subplot(111)   
+            # Need to recalculate the equity to have the correct values
+            self.calculate_ledger_equity()    
+
+        ax.axhline(y=0, color='black', linewidth=1)
+
+        # Non liquid assets
+        equity = self._ledger_equity.copy()
+        non_liquid = equity['Total'] - equity[self.symbol]
+        non_liquid_df = pd.DataFrame(non_liquid, columns=['Total'])
+        non_liquid_df = self.resample_data(non_liquid_df, type='last')
+        datetime = non_liquid_df.index
+        assets_value = non_liquid_df["Total"]
+        ax.plot(datetime, assets_value, color='black', alpha=0.7, linewidth=0.2)
+
+        # Equity
+        historical_equity = self._historical_equity
+        resampled_historical_equity = self.resample_data(historical_equity, type='last')
+        datetime = resampled_historical_equity.index
+        total_equity = resampled_historical_equity["Total"]
+        ax.plot(datetime, total_equity, label='Equity', color='black', alpha=0.8, linewidth=1)
+
+        # Fill where the differences
+        ax.fill_between(datetime, assets_value, color='orange', alpha=0.2, label='Invested')
+        ax.fill_between(datetime, assets_value, total_equity, color='blue', alpha=0.2, label='Liquidity')
+
+        # Need to recalculate the equity to have the correct values
+        transactions_df = self.ledger_transactions
+        resampled_transactions_df = self.resample_data(transactions_df, type='sum', freq='6h')
+
+        # Display positive values for buys
+        buys_df = resampled_transactions_df[resampled_transactions_df > 0].fillna(0)
+        # Display negative values for sells
+        sells_df = resampled_transactions_df[resampled_transactions_df < 0].fillna(0)
+        # Initialize a variable to keep track of the bottom position for buys
+        bottoms_buy = np.zeros(len(buys_df))
+        # Initialize a variable to keep track of the bottom position for sells
+        bottoms_sell = np.zeros(len(buys_df))
+        # Set the width of the bars
+        bars_width = 0.20
+        for column in transactions_df.columns:
+            # Calculate net transactions for the column
+            transactions = buys_df[column] + sells_df[column]
+            
+            # Ensure bottoms is calculated to match the transactions shape
+            # This example assumes a simple stacking strategy where buys are stacked above sells
+            # Adjust this logic based on your specific needs
+            bottoms = np.where(transactions > 0, bottoms_buy, bottoms_sell)
+            
+            # Plot the bar chart
+            ax.bar(transactions.index, transactions.values, label=column, bottom=bottoms, width=bars_width)
+            
+            # Update bottoms for buys and sells separately if needed
+            # This is a placeholder; your logic for updating bottoms will depend on your specific stacking strategy
+            bottoms_buy += np.where(transactions > 0, transactions.values, 0)
+            bottoms_sell += np.where(transactions < 0, transactions.values, 0)
+
+        ax.set_title("Transactions Over Time")
+        ax.set_xlabel("Time")
+        ax.set_ylabel(f"Value / Amount ({self.symbol})")
+        ax.grid(True)
+        # To enable the grid for minor ticks
+        ax.xaxis.set_minor_locator(AutoMinorLocator())
+        ax.yaxis.set_minor_locator(AutoMinorLocator())
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+        ax.yaxis.set_major_formatter(FuncFormatter(thousands))
+        plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
+        ax.grid(which="both")
+        ax.grid(which="minor", alpha=0.3)
+        ax.grid(which="major", alpha=0.5)
+        ax.legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
 
         if fig_ax is None:
             # Show the plot
@@ -936,10 +1042,14 @@ class Portfolio(Asset):
         """
         # Create an Axes object for the figure
         fig, ax = plt.subplots(
-            nrows=2, ncols=1, figsize=(10, 10), sharex=True
+            nrows=3, ncols=1, figsize=(15, 15), sharex=True
         )
+
+        # Need to recalculate the equity to have the correct values
+        self.calculate_ledger_equity()
 
         self.plot_benchmark((fig, ax[0]))
         self.plot_assets_share((fig, ax[1]))
+        self.plot_transactions((fig, ax[2]))
 
         plt.show()
