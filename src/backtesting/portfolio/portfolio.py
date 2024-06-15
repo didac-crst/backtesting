@@ -374,7 +374,17 @@ class Portfolio(Asset):
         Property to get the list of assets in the portfolio.
 
         """
-        return list(self.assets.keys())
+        assets_list = list(self.assets.keys())
+        assets_list.sort()
+        return assets_list
+    
+    @property
+    def all_symbols(self) -> list[str]:
+        """
+        Property to get the list of all symbols in the portfolio.
+
+        """
+        return [self.symbol, *self.assets_list]
 
     @property
     def assets_value(self) -> float:
@@ -870,7 +880,7 @@ class Portfolio(Asset):
 
         # CURRENCY PRICES
         historical_prices = self.historical_prices_pivot
-        resampled_historical_prices = self.resample_data(historical_prices, type='last', freq='6h')
+        resampled_historical_prices = self.resample_data(historical_prices, type='mean', freq='6h')
         for asset in self.assets_list:
             asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
             datetime = asset_prices.index
@@ -916,22 +926,19 @@ class Portfolio(Asset):
 
         label_colors = self.label_colors
         equity_share_df = self.ledger_equity_share
-        # Reorder the columns to have the portfolio currency at the end
-        columns = equity_share_df.columns.tolist()
-        # Find the index of self.symbol in the columns list
-        symbol_index = columns.index(self.symbol)
-        # Pop the element at the found index
-        columns.pop(symbol_index)
-        # Append self.symbol to the end of the list
-        columns.append(self.symbol)
-        equity_share_df = equity_share_df[columns]
         resampled_equity_share_df = self.resample_data(equity_share_df, type='mean')
+        # Reverse the columns to do the cumsum in the correct order
+        # Reorder the columns to have the portfolio currency at the end
+        columns = self.all_symbols
+        columns.reverse()
+        resampled_equity_share_df = resampled_equity_share_df[columns]
         resampled_equity_share_df_cumsum = resampled_equity_share_df.cumsum(axis=1)
         # Reverse the columns to have a proper display
-        resampled_equity_share_df_cumsum = resampled_equity_share_df_cumsum.iloc[:, ::-1]
-        for column in resampled_equity_share_df_cumsum.columns:
+        columns.reverse()
+        # columns = resampled_equity_share_df_cumsum.columns
+        for column in columns:
             color = label_colors[column]
-            ax.fill_between(resampled_equity_share_df_cumsum.index, resampled_equity_share_df_cumsum[column], label=column, color=color, alpha=0.8, edgecolor='black')
+            ax.fill_between(resampled_equity_share_df_cumsum.index, resampled_equity_share_df_cumsum[column], label=column, color=color, alpha=1.0, edgecolor='black')
         ax.set_title("Equity Share Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Equity Share")
@@ -1008,7 +1015,7 @@ class Portfolio(Asset):
         bottoms_sell = np.zeros(len(resampled_sells_df))
         # Set the width of the bars
         bars_width = 0.45
-        for column in transactions_df.columns:
+        for column in self.assets_list:
             color = label_colors[column]
             # Plot the bar chart buys
             ax.bar(resampled_buys_df.index, resampled_buys_df[column], label=column, bottom=bottoms_buy, width=bars_width, color=color, alpha=1.0, edgecolor='black')
