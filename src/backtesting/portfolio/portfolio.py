@@ -157,6 +157,7 @@ class Portfolio(Asset):
             portfolio_symbol=self.symbol,
             commission=self.commission_trade,
         )
+        self.create_consistent_colors_labels()
 
     def add_Currency_list(self, symbols_list: list[str]) -> None:
         """
@@ -843,6 +844,7 @@ class Portfolio(Asset):
             # Need to recalculate the equity to have the correct values
             self.calculate_historical_equity()
         
+        label_colors = self.label_colors
         ax.axhline(y=0, color='black', linewidth=1)
 
         # EQUITY
@@ -868,14 +870,15 @@ class Portfolio(Asset):
 
         # CURRENCY PRICES
         historical_prices = self.historical_prices_pivot
-        resampled_historical_prices = self.resample_data(historical_prices, type='last')
+        resampled_historical_prices = self.resample_data(historical_prices, type='last', freq='6h')
         for asset in self.assets_list:
             asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
             datetime = asset_prices.index
             label = (
                 f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
             )
-            ax.plot(datetime, asset_prices, label=label, linewidth=1, alpha=0.8)
+            color = label_colors[asset]
+            ax.plot(datetime, asset_prices, label=label, linewidth=3, alpha=0.6, color=color)
         ax.set_title("Equity and Currency Change Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Growth")
@@ -911,6 +914,7 @@ class Portfolio(Asset):
             # Need to recalculate the equity to have the correct values
             self.calculate_ledger_equity()
 
+        label_colors = self.label_colors
         equity_share_df = self.ledger_equity_share
         # Reorder the columns to have the portfolio currency at the end
         columns = equity_share_df.columns.tolist()
@@ -926,7 +930,8 @@ class Portfolio(Asset):
         # Reverse the columns to have a proper display
         resampled_equity_share_df_cumsum = resampled_equity_share_df_cumsum.iloc[:, ::-1]
         for column in resampled_equity_share_df_cumsum.columns:
-            ax.fill_between(resampled_equity_share_df_cumsum.index, resampled_equity_share_df_cumsum[column], label=column)
+            color = label_colors[column]
+            ax.fill_between(resampled_equity_share_df_cumsum.index, resampled_equity_share_df_cumsum[column], label=column, color=color, alpha=0.8, edgecolor='black')
         ax.set_title("Equity Share Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Equity Share")
@@ -960,7 +965,9 @@ class Portfolio(Asset):
             # Create an Axes object for the figure
             ax = fig.add_subplot(111)   
             # Need to recalculate the equity to have the correct values
-            self.calculate_ledger_equity()    
+            self.calculate_ledger_equity()
+
+        label_colors = self.label_colors
 
         ax.axhline(y=0, color='black', linewidth=1)
 
@@ -971,49 +978,46 @@ class Portfolio(Asset):
         non_liquid_df = self.resample_data(non_liquid_df, type='last')
         datetime = non_liquid_df.index
         assets_value = non_liquid_df["Total"]
-        ax.plot(datetime, assets_value, color='black', alpha=0.7, linewidth=0.2)
+        ax.plot(datetime, assets_value, color='black', alpha=0.7, linewidth=1)
 
         # Equity
         historical_equity = self._historical_equity
         resampled_historical_equity = self.resample_data(historical_equity, type='last')
         datetime = resampled_historical_equity.index
         total_equity = resampled_historical_equity["Total"]
-        ax.plot(datetime, total_equity, label='Equity', color='black', alpha=0.8, linewidth=1)
+        ax.plot(datetime, total_equity, color='black', alpha=0.8, linewidth=1)
 
         # Fill where the differences
-        ax.fill_between(datetime, assets_value, color='orange', alpha=0.2, label='Assets')
-        ax.fill_between(datetime, assets_value, total_equity, color='blue', alpha=0.2, label='Liquidity')
+        ax.fill_between(datetime, assets_value, color='red', alpha=0.1, label='Assets')
+        ax.fill_between(datetime, assets_value, total_equity, color='blue', alpha=0.1, label='Liquid')
 
         # Need to recalculate the equity to have the correct values
         transactions_df = self.ledger_transactions
-        resampled_transactions_df = self.resample_data(transactions_df, type='sum', freq='6h')
-
-        # Display positive values for buys
-        buys_df = resampled_transactions_df[resampled_transactions_df > 0].fillna(0)
-        # Display negative values for sells
-        sells_df = resampled_transactions_df[resampled_transactions_df < 0].fillna(0)
+        # Resample buys and sells to have a better visualization
+        # It is needed to split buys and sells to have a better visualization
+        # When resampling buys and sells they would cancel each other in the same sampling window
+        resample_type = 'sum'
+        resample_freq = '12h'
+        buys_df = transactions_df[transactions_df > 0].fillna(0)
+        resampled_buys_df = self.resample_data(buys_df, type=resample_type, freq=resample_freq)
+        sells_df = transactions_df[transactions_df < 0].fillna(0)
+        resampled_sells_df = self.resample_data(sells_df, type=resample_type, freq=resample_freq)
         # Initialize a variable to keep track of the bottom position for buys
-        bottoms_buy = np.zeros(len(buys_df))
+        bottoms_buy = np.zeros(len(resampled_buys_df))
         # Initialize a variable to keep track of the bottom position for sells
-        bottoms_sell = np.zeros(len(buys_df))
+        bottoms_sell = np.zeros(len(resampled_sells_df))
         # Set the width of the bars
-        bars_width = 0.20
+        bars_width = 0.45
         for column in transactions_df.columns:
-            # Calculate net transactions for the column
-            transactions = buys_df[column] + sells_df[column]
-            
-            # Ensure bottoms is calculated to match the transactions shape
-            # This example assumes a simple stacking strategy where buys are stacked above sells
-            # Adjust this logic based on your specific needs
-            bottoms = np.where(transactions > 0, bottoms_buy, bottoms_sell)
-            
-            # Plot the bar chart
-            ax.bar(transactions.index, transactions.values, label=column, bottom=bottoms, width=bars_width)
+            color = label_colors[column]
+            # Plot the bar chart buys
+            ax.bar(resampled_buys_df.index, resampled_buys_df[column], label=column, bottom=bottoms_buy, width=bars_width, color=color, alpha=1.0, edgecolor='black')
+            # Plot the bar chart sells
+            ax.bar(resampled_sells_df.index, resampled_sells_df[column], bottom=bottoms_sell, width=bars_width, color=color, alpha=1.0, edgecolor='black')
             
             # Update bottoms for buys and sells separately if needed
-            # This is a placeholder; your logic for updating bottoms will depend on your specific stacking strategy
-            bottoms_buy += np.where(transactions > 0, transactions.values, 0)
-            bottoms_sell += np.where(transactions < 0, transactions.values, 0)
+            bottoms_buy += resampled_buys_df[column]
+            bottoms_sell += resampled_sells_df[column]
 
         ax.set_title("Transactions Over Time")
         ax.set_xlabel("Time")
@@ -1034,6 +1038,12 @@ class Portfolio(Asset):
         if fig_ax is None:
             # Show the plot
             plt.show()
+    
+    def create_consistent_colors_labels(self) -> None:
+        labels = [self.symbol, *self.assets_list]
+        cmap = plt.get_cmap("Set2")
+        colors = {label: cmap(i) for i, label in enumerate(labels)}
+        self.label_colors = colors
 
     def plot_summary(self) -> None:
         """
