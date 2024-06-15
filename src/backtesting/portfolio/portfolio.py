@@ -91,7 +91,8 @@ class Portfolio(Asset):
             ]
         ]
         hold_gains = self._hold_gains_assets
-        for asset_symbol, Currency in self.assets.items():
+        for asset_symbol in self.assets_list:
+            Currency = self.assets[asset_symbol]
             data.append(
                 [
                     asset_symbol,
