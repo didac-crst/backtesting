@@ -876,7 +876,7 @@ class Portfolio(Asset):
                 f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
             )
             ax.plot(datetime, asset_prices, label=label, linewidth=1, alpha=0.8)
-        ax.set_title("Equity and Assets Change Over Time")
+        ax.set_title("Equity and Currency Change Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Growth")
         ax.grid(True)
@@ -981,7 +981,7 @@ class Portfolio(Asset):
         ax.plot(datetime, total_equity, label='Equity', color='black', alpha=0.8, linewidth=1)
 
         # Fill where the differences
-        ax.fill_between(datetime, assets_value, color='orange', alpha=0.2, label='Invested')
+        ax.fill_between(datetime, assets_value, color='orange', alpha=0.2, label='Assets')
         ax.fill_between(datetime, assets_value, total_equity, color='blue', alpha=0.2, label='Liquidity')
 
         # Need to recalculate the equity to have the correct values
