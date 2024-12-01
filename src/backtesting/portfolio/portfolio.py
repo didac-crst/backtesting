@@ -110,32 +110,44 @@ class Portfolio(Asset):
         Dunder method to display the portfolio information as a string.
 
         """
-        self.calculate_hold_gains_assets()
         text = (
-            f"Portfolio ({self.name}):\n"
-            f"  -> Symbol = {self.symbol}\n"
-            f"  -> Transfer commission = {display_percentage(self.commission_transfer)}\n"
-            f"  -> Trade commission = {display_percentage(self.commission_trade)}\n"
-            f"  -> Invested capital = {display_price(self.invested_capital, self.symbol)}\n"
-            f"  -> Disbursed capital = {display_price(self.disbursed_capital, self.symbol)}\n"
-            f"  -> Quote balance = {display_price(self.balance, self.symbol)}\n"
-            f"  -> Assets value = {display_price(self.assets_value, self.symbol)}\n"
-            f"  -> Equity value = {display_price(self.equity_value, self.symbol)}\n"
-            f"  -> Transactions = {display_integer(self.transactions_count())}\n"
-            f"  -> Total traded = {display_price(self.transactions_sum(), self.symbol)}\n"
-            f"  -> Gains = {display_price(self.gains, self.symbol)}\n"
-            f"  -> Total commissions = {display_price(self.total_commissions, self.symbol)}\n"
-            f"  -> Commission gains ratio = {self.commission_gains_ratio_str}\n"
-            f"  -> ROI = {display_percentage(self.roi)}\n"
-            f"  -> Hold Gains (Theoretical) = {display_price(self.hold_gains, self.symbol)}\n"
-            f"  -> Hold ROI (Theoretical) = {display_percentage(self.hold_roi)}\n"
-            f"  -> ROI Performance (vs Hold) = {display_percentage(self.roi_vs_hold_roi)}\n"
-            f"  -> Assets:"
+                f"Portfolio ({self.name}):\n"
+                f"  -> Symbol = {self.symbol}\n"
+                f"  -> Transfer commission = {display_percentage(self.commission_transfer)}\n"
+                f"  -> Trade commission = {display_percentage(self.commission_trade)}\n"
+                f"  -> Invested capital = {display_price(self.invested_capital, self.symbol)}\n"
+                f"  -> Disbursed capital = {display_price(self.disbursed_capital, self.symbol)}\n"
+                f"  -> Quote balance = {display_price(self.balance, self.symbol)}\n"
         )
-        if len(self.assets) > 0:
-            text += f"\n{self._assets_table}\n\n"
+        # If there are no historical prices, it can't display any assets information.
+        if self.historical_prices.empty:
+            text = (
+                "!!! NO DATA ASSETS' PRICES AVAILABLE YET !!!\n"
+                "    -> Please update assets' prices.\n\n"
+                f"{text}"
+            )
         else:
-            text += " None\n\n"
+            self.calculate_hold_gains_assets()
+            text = (
+                f"{text}"
+                f"  -> Assets value = {display_price(self.assets_value, self.symbol)}\n"
+                f"  -> Equity value = {display_price(self.equity_value, self.symbol)}\n"
+                f"  -> Transactions = {display_integer(self.transactions_count())}\n"
+                f"  -> Total traded = {display_price(self.transactions_sum(), self.symbol)}\n"
+                f"  -> Gains = {display_price(self.gains, self.symbol)}\n"
+                f"  -> Total commissions = {display_price(self.total_commissions, self.symbol)}\n"
+                f"  -> Commission gains ratio = {self.commission_gains_ratio_str}\n"
+                f"  -> ROI = {display_percentage(self.roi)}\n"
+                f"  -> Hold Gains (Theoretical) = {display_price(self.hold_gains, self.symbol)}\n"
+                f"  -> Hold ROI (Theoretical) = {display_percentage(self.hold_roi)}\n"
+                f"  -> ROI Performance (vs Hold) = {display_percentage(self.roi_vs_hold_roi)}\n"
+                f"  -> Assets:"
+            )
+            if len(self.assets) > 0:
+                text += f"\n{self._assets_table}\n\n"
+            # I think that this else is useless because the if self.historical_prices.empty.
+            else:
+                text += " None\n\n"
         return text
 
     def print_portfolio(self) -> None:
