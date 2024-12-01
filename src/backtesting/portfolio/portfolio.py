@@ -116,16 +116,16 @@ class Portfolio(Asset):
             f"  -> Symbol = {self.symbol}\n"
             f"  -> Transfer commission = {display_percentage(self.commission_transfer)}\n"
             f"  -> Trade commission = {display_percentage(self.commission_trade)}\n"
-            f"  -> Transactions = {display_integer(self.transactions_count())}\n"
-            f"  -> Total traded = {display_price(self.transactions_sum(), self.symbol)}\n"
-            f"  -> Total commissions = {display_price(self.total_commissions, self.symbol)}\n"
-            f"  -> Commission gains ratio = {self.commission_gains_ratio_str}\n"
             f"  -> Invested capital = {display_price(self.invested_capital, self.symbol)}\n"
             f"  -> Disbursed capital = {display_price(self.disbursed_capital, self.symbol)}\n"
             f"  -> Quote balance = {display_price(self.balance, self.symbol)}\n"
             f"  -> Assets value = {display_price(self.assets_value, self.symbol)}\n"
             f"  -> Equity value = {display_price(self.equity_value, self.symbol)}\n"
+            f"  -> Transactions = {display_integer(self.transactions_count())}\n"
+            f"  -> Total traded = {display_price(self.transactions_sum(), self.symbol)}\n"
             f"  -> Gains = {display_price(self.gains, self.symbol)}\n"
+            f"  -> Total commissions = {display_price(self.total_commissions, self.symbol)}\n"
+            f"  -> Commission gains ratio = {self.commission_gains_ratio_str}\n"
             f"  -> ROI = {display_percentage(self.roi)}\n"
             f"  -> Hold Gains (Theoretical) = {display_price(self.hold_gains, self.symbol)}\n"
             f"  -> Hold ROI (Theoretical) = {display_percentage(self.hold_roi)}\n"
@@ -860,36 +860,43 @@ class Portfolio(Asset):
 
         # EQUITY
         historical_equity = self._historical_equity
-        resampled_historical_equity = self.resample_data(historical_equity, type='last')
+        resampled_historical_equity = self.resample_data(historical_equity, type='mean')
         equity = self.normalize_to_growth(resampled_historical_equity["Total"])
         datetime = equity.index
         label = f"Equity ({display_percentage(self.roi)})"
         ax.plot(datetime, equity, label=label, color="black", linewidth=1)
         # Fill areas where y < 0 with red and y > 0 with green
-        ax.fill_between(datetime, equity, where=(equity > 0), color="green", alpha=0.2)  # type: ignore
-        ax.fill_between(datetime, equity, where=(equity < 0), color="red", alpha=0.2)  # type: ignore
+        ax.fill_between(datetime, equity, where=(equity > 0), color="green", alpha=0.1)  # type: ignore
+        ax.fill_between(datetime, equity, where=(equity < 0), color="red", alpha=0.1)  # type: ignore
 
         # THEORETICAL HOLD EQUITY
         # Need to recalculate the theoretical hold equity to have the correct values
         self.calculate_historical_theoretical_hold_equity()
         theoretical_hold_equity = self._historical_theoretical_hold_equity
-        resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity, type='last')
+        resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity, type='mean')
         theoretical_equity = self.normalize_to_growth(resampled_theoretical_hold_equity)
         datetime = theoretical_equity.index
         label = f"Hold ({display_percentage(self.hold_roi)})"
-        ax.plot(datetime, theoretical_equity, label=label, color="blue", linewidth=2, alpha=0.7)
+        hold_color = label_colors['hold']
+        # Plot line
+        ax.plot(datetime, theoretical_equity, label=label, linewidth=2, alpha=1, color=hold_color)
+        # Plot shadow
+        ax.plot(datetime, theoretical_equity, linewidth=6, alpha=0.3, color=hold_color)
 
         # CURRENCY PRICES
         historical_prices = self.historical_prices_pivot
-        resampled_historical_prices = self.resample_data(historical_prices, type='mean', freq='6h')
+        resampled_historical_prices = self.resample_data(historical_prices, type='mean')
         for asset in self.assets_list:
-            asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
-            datetime = asset_prices.index
             label = (
                 f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
             )
+            asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
+            datetime = asset_prices.index
             color = label_colors[asset]
-            ax.plot(datetime, asset_prices, label=label, linewidth=3, alpha=0.6, color=color)
+            # Plot line
+            ax.plot(datetime, asset_prices, label=label, linewidth=1, alpha=1, color=color)
+            # Plot shadow
+            ax.plot(datetime, asset_prices, linewidth=4, alpha=0.3, color=color)
         ax.set_title("Equity and Currency Change Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Growth")
@@ -979,6 +986,9 @@ class Portfolio(Asset):
 
         ax.axhline(y=0, color='black', linewidth=1)
 
+        color_hold = self.label_colors['hold']
+        color_symbol = self.label_colors[self.symbol]
+
         # Non liquid assets
         equity = self._ledger_equity.copy()
         non_liquid = equity['Total'] - equity[self.symbol]
@@ -986,18 +996,18 @@ class Portfolio(Asset):
         non_liquid_df = self.resample_data(non_liquid_df, type='last')
         datetime = non_liquid_df.index
         assets_value = non_liquid_df["Total"]
-        ax.plot(datetime, assets_value, color='black', alpha=0.7, linewidth=1)
+        ax.plot(datetime, assets_value, color=color_hold, alpha=1.0, linewidth=1)
 
         # Equity
         historical_equity = self._historical_equity
         resampled_historical_equity = self.resample_data(historical_equity, type='last')
         datetime = resampled_historical_equity.index
         total_equity = resampled_historical_equity["Total"]
-        ax.plot(datetime, total_equity, color='black', alpha=0.8, linewidth=1)
+        ax.plot(datetime, total_equity, color=color_symbol, alpha=1.0, linewidth=1)
 
         # Fill where the differences
-        ax.fill_between(datetime, assets_value, color='red', alpha=0.1, label='Assets')
-        ax.fill_between(datetime, assets_value, total_equity, color='blue', alpha=0.1, label='Liquid')
+        ax.fill_between(datetime, assets_value, color=color_hold, alpha=0.2, label='Assets')
+        ax.fill_between(datetime, assets_value, total_equity, color=color_symbol, alpha=0.2, label='Liquid')
 
         # Need to recalculate the equity to have the correct values
         transactions_df = self.ledger_transactions
@@ -1005,7 +1015,7 @@ class Portfolio(Asset):
         # It is needed to split buys and sells to have a better visualization
         # When resampling buys and sells they would cancel each other in the same sampling window
         resample_type = 'sum'
-        resample_freq = '12h'
+        resample_freq = '6h'
         buys_df = transactions_df[transactions_df > 0].fillna(0)
         resampled_buys_df = self.resample_data(buys_df, type=resample_type, freq=resample_freq)
         sells_df = transactions_df[transactions_df < 0].fillna(0)
@@ -1015,7 +1025,7 @@ class Portfolio(Asset):
         # Initialize a variable to keep track of the bottom position for sells
         bottoms_sell = np.zeros(len(resampled_sells_df))
         # Set the width of the bars
-        bars_width = 0.45
+        bars_width = 0.23
         for column in self.assets_list:
             color = label_colors[column]
             # Plot the bar chart buys
@@ -1048,7 +1058,8 @@ class Portfolio(Asset):
             plt.show()
     
     def create_consistent_colors_labels(self) -> None:
-        labels = [self.symbol, *self.assets_list]
+        hold = 'hold'
+        labels = [self.symbol, hold, *self.assets_list]
         cmap = plt.get_cmap("Set2")
         colors = {label: cmap(i) for i, label in enumerate(labels)}
         self.label_colors = colors

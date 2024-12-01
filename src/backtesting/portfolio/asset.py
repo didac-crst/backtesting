@@ -23,5 +23,5 @@ class Asset:
         """
         if amount > self.balance:
             raise ValueError(
-                f"Insufficient funds: balance is {self.balance} and you want to spend {amount}."
+                f"{self.symbol}: Insufficient funds: balance is {self.balance} and you want to spend {amount}."
             )

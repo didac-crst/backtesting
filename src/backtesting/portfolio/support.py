@@ -76,7 +76,7 @@ def display_price(amount: float, unit: Optional[str] = None) -> str:
         log_figure = np.log10(amount)
         factor = int(np.ceil(-log_figure))
         if factor > 0:
-            depth = factor + 3
+            depth = factor + 1
             text = f"{amount:.{depth}f}"
     if unit is not None:
         text += f" {unit}"
