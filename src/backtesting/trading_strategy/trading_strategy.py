@@ -137,6 +137,7 @@ class TradingStrategies:
         Buy a random asset in the portfolio.
 
         """
+        buy_msg = "Buying random asset based on the random weights."
         random_weights = self.random_asset_distribution_weights
         initial_balance = portfolio.balance
         initial_timestamp = self.initial_timestamp
@@ -146,7 +147,7 @@ class TradingStrategies:
             amount_quote = initial_balance * float(weight)
             # We buy the asset if the amount is higher than 0, if not we skip it.
             if amount_quote > 0:
-                portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp)
+                portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp, msg=buy_msg)
     
     def buy_defined_asset(self, portfolio: Portfolio) -> None:
         """
@@ -155,13 +156,14 @@ class TradingStrategies:
         The dictionary contains the assets and their amounts in quote currency.
 
         """
+        buy_msg = "Buying defined asset based on the initial assets list."
         initial_timestamp = self.initial_timestamp
         prices = self.get_prices_on_timestamp(initial_timestamp)
         portfolio.update_prices(prices=prices, timestamp=initial_timestamp)
         for asset, amount_quote in self.initial_assets_list.items():
             # We need to skip the portfolio symbol as we can't buy it.
             if asset != self.portfolio_symbol:
-                portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp)
+                portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp, msg=buy_msg)
 
     def create_single_portfolio(self) -> None:
         """
@@ -261,17 +263,20 @@ class TradingStrategies:
         Ensure liquidity in the Portfolios.
 
         """
+        sell_msg = "Selling asset to ensure liquidity."
         for PF in self.Portfolios:
             min_liquidity = self.minimal_liquidity_ratio * PF.equity_value
             while PF.balance < min_liquidity:
                 # We find out the owned assets with low performance.
                 triggers = self.current_triggers
+                # We get the assets that we own.
                 owned_assets = PF.positive_balance_assets_list
+                # We get the triggers of the assets that we own.
                 triggers_owned_assets = triggers[triggers.index.isin(owned_assets)]
                 # We get the asset with the lowest performance.
                 lowest_asset = triggers_owned_assets.idxmin()
                 # We sell the asset with the lowest performance.
-                PF.sell(symbol=lowest_asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
+                PF.sell(symbol=lowest_asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=sell_msg)
     
     def trade_on_signals(self) -> None:
         """
@@ -280,12 +285,15 @@ class TradingStrategies:
         """
         self.ensure_liquidity()
         for PF in self.Portfolios:
+            # ASSETS TO BUY >>>>>>>>>>>
             for asset in self.current_assets_to_buy:
                 # We buy the asset only if we have enough cash.
                 if PF.balance > self.quote_ticket_amount:
                     # We buy the asset only if the maximal equity per asset ratio is not reached.
-                    if PF.get_value(symbol=asset, quote='USDT') < self.maximal_equity_per_asset_ratio * PF.equity_value:
+                    asset_equity_ratio = PF.get_value(symbol=asset, quote='USDT') / PF.equity_value
+                    if asset_equity_ratio < self.maximal_equity_per_asset_ratio:
                         PF.buy(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
+            # ASSETS TO SELL >>>>>>>>>>>
             for asset in self.current_assets_to_sell:
                 # We sell the asset only if we own the asset.
                 if asset in PF.positive_balance_assets_list:
