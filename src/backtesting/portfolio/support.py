@@ -101,7 +101,13 @@ def display_pretty_table(data: list[list[str]], padding: int = 0) -> str:
     """
     table = pt.PrettyTable()
     table.field_names = data[0]
-    for row in data[1:]:
+    payload = data[1:]
+    # Sort the assets by the last column, where the quote value is stored
+    sorted_assets = sorted(payload, key=lambda asset: asset[-1], reverse=True)
+    for row in sorted_assets:
+        # Remove the last element `.pop()` of the row, which is the quote value
+        # It is not displayed in the table
+        row.pop()
         table.add_row(row)
     for field in table.field_names:
         if field == table.field_names[0]:

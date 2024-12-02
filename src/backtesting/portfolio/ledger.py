@@ -17,8 +17,18 @@ class Ledger:
     capital: list[Capital] = field(default_factory=list)
     prices: list[CurrencyPrice] = field(default_factory=list)
     transactions: list[Transaction] = field(default_factory=list)
+    active_assets: list[str] = field(default_factory=list)
+    timestamp_low_resolution: int = 1000 # samples
 
     # Ledger actions methods ------------------------------------------------
+    
+    def record_active_asset(self, symbol: str) -> None:
+        """
+        Method to record an active asset in the ledger.
+
+        """
+        if symbol not in self.active_assets:
+            self.active_assets.append(symbol)
 
     def record_capital_movement(
         self, timestamp: int, action: str, amount: float
@@ -80,6 +90,7 @@ class Ledger:
             commission=commission,
         )
         self.transactions.append(transaction)
+        self.record_active_asset(symbol)
 
     def buy(
         self,
@@ -110,6 +121,46 @@ class Ledger:
         self.record_transaction(timestamp, "SELL", symbol, amount, price, commission)
 
     # Ledger reporting methods ------------------------------------------------
+        
+    @property
+    def timestamp_reporting_list(self) -> list:
+        """
+        Reduce the timestamp resolution of a list of objects.
+
+        """
+        prices_list = self.prices
+        def get_exact_timejump(timespan: int, multiple: int, resolution: int) -> int:
+            # Function to get a timejump that is a multiple of multiple and that fits the resolution.
+            raw_timejump = timespan / resolution
+            return round(raw_timejump / multiple) * multiple
+
+        unique_timestamps = set()
+        for obj in prices_list:
+            value = getattr(obj, 'timestamp', None)
+            if isinstance(value, int):
+                unique_timestamps.add(value)
+        timestamp_list = list(unique_timestamps)
+        timestamp_list.sort()
+        timestamp_series = pd.Series(timestamp_list)
+        # Get the minimal value of the timestamp
+        timestamp_min = timestamp_series.min()
+        # Get the maximal value of the timestamp
+        timestamp_max = timestamp_series.max()
+        # Get the timespan between the minimal and maximal timestamp
+        timespan = timestamp_max - timestamp_min
+        # Get the most common frequency between timestamps
+        if len(timestamp_series) > 1:
+            timestamp_multiple = int(timestamp_series.diff().median())
+        else:
+            timestamp_multiple = 1
+        timejumps = get_exact_timejump(timespan=timespan, multiple=timestamp_multiple, resolution=self.timestamp_low_resolution)
+        # If the timejumps is 0, we return the minimal timestamp
+        # range does not accept a step of 0 (timejumps)
+        if timejumps == 0:
+            timestamps_list = [timestamp_min]
+        else:
+            timestamps_list = list(range(timestamp_min, timestamp_max + 1, timejumps))
+        return timestamps_list
 
     @property
     def total_commissions(self) -> float:
@@ -206,12 +257,19 @@ class Ledger:
                     currency_price.price,
                 )
             )
-        columns = (
+    
+        columns = [
             "Timestamp",
             "Symbol",
             "Price",
-        )
+        ]
         df = pd.DataFrame(data, columns=columns)
+        # We only keep the prices of the active assets
+        df = df[df["Symbol"].isin(self.active_assets)]
+        # We only keep the prices that are in the reporting list
+        # The resolution of the reporting list is lower than the prices' timestamps
+        df = df[df["Timestamp"].isin(self.timestamp_reporting_list)]
+        df.reset_index(drop=True, inplace=True)
         return df
 
     @property
@@ -301,6 +359,11 @@ class Ledger:
         equity_df = equity_df.ffill()
         # Fill the NaN values with 0
         equity_df = equity_df.fillna(0)
+        # # We only keep the prices of the active assets
+        # equity_df = equity_df[self.active_assets]
+        # # We only keep the prices that are in the reporting list
+        # # The resolution of the reporting list is lower than the prices' timestamps
+        # equity_df = equity_df[equity_df.index.isin(self.timestamp_reporting_list)]
         # Calculate the total equity
         equity_df["Total"] = equity_df.sum(axis=1)
         return equity_df

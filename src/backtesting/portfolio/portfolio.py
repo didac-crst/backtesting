@@ -24,6 +24,21 @@ from .support import (
 
 VerboseType = Literal["silent", "action", "status", "verbose"]
 
+@dataclass
+class ActivityLog():
+    
+    def __post_init__(self) -> None:
+        self.name = self.__class__.__name__
+        self.log = []
+    
+    def add_log(self, msg: str, timestamp: int) -> None:
+        text = f"{timestamp}: {msg}"
+        self.log.append(text)
+    
+    def print_log(self) -> None:
+        for log in self.log:
+            print(log)
+
 
 @dataclass
 class Portfolio(Asset):
@@ -45,6 +60,7 @@ class Portfolio(Asset):
         self.set_portfolio_name()
         self.assets = dict()
         self.Ledger = Ledger(portfolio_symbol=self.symbol)
+        self.TradeLog = ActivityLog()
     
     def set_portfolio_name(self) -> None:
         """
@@ -93,16 +109,24 @@ class Portfolio(Asset):
         hold_gains = self._hold_gains_assets
         for asset_symbol in self.assets_list:
             Currency = self.assets[asset_symbol]
-            data.append(
-                [
-                    asset_symbol,
-                    *Currency.values,
-                    display_integer(self.transactions_count(asset_symbol)),
-                    display_price(self.transactions_sum(asset_symbol), self.symbol),
-                    display_percentage(self.get_asset_growth(asset_symbol)),
-                    display_price(hold_gains[asset_symbol], self.symbol),
-                ]
-            )
+            # We want to keep the real value of the asset to order the table
+            # This returns the value of the asset in the portfolio currency
+            # The sorting will be done in display_pretty_table,
+            # After sorting, this element will be removed
+            tmp_asset_value = self.get_value(symbol=asset_symbol, quote=self.symbol)
+            # Display only the assets with transactions
+            if self.transactions_count(asset_symbol) > 0:
+                data.append(
+                    [
+                        asset_symbol,
+                        *Currency.values,
+                        display_integer(self.transactions_count(asset_symbol)),
+                        display_price(self.transactions_sum(asset_symbol), self.symbol),
+                        display_percentage(self.get_asset_growth(asset_symbol)),
+                        display_price(hold_gains[asset_symbol], self.symbol),
+                        tmp_asset_value
+                    ]
+                )
         return display_pretty_table(data, padding=6)
 
     def __repr__(self) -> str:
@@ -232,6 +256,21 @@ class Portfolio(Asset):
             self.verbose_status = True
         self.print_portfolio()
 
+    def log_balance(self, symbol: str, timestamp: int) -> None:
+        """
+        Method to log the balance of an asset in the portfolio.
+
+        """
+        msg = (
+            # Display the balance of the asset in the asset currency
+            f"[Asset balance: {display_price(self.get_value(symbol=symbol, quote=symbol), symbol)} / "
+            # Display the balance of the asset in the portfolio currency
+            f"({display_price(self.get_value(symbol=symbol, quote=self.symbol), self.symbol)}) / "
+            # Display the cash balance in the portfolio currency
+            f"Quote balance: {display_price(self.balance, self.symbol)}]"
+        )
+        self.TradeLog.add_log(msg, timestamp)
+
     @check_positive
     def deposit(self, amount: float, timestamp: Optional[int] = None) -> None:
         """
@@ -301,21 +340,27 @@ class Portfolio(Asset):
         Method to buy an amount of an asset in the portfolio.
 
         """
+        msg = f">>>>>> BUYING TRANSACTION <<<<<<"
+        self.TradeLog.add_log(msg, timestamp)
+        self.log_balance(symbol, timestamp)
         price = self.assets[symbol].price
         if timestamp is None:
             timestamp = now_ms()
         amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
         gross_amount_quote = amount_quote + commission_quote
+        msg = (
+            f"Buying {display_price(amount_base, symbol)} for {display_price(amount_quote, self.symbol)} "
+            f"at {display_price(self.assets[symbol].price, self.symbol)}/{symbol} "
+            f"(Commission: {display_price(commission_quote, self.symbol)})"
+        )
+        self.TradeLog.add_log(msg, timestamp)
         self.check_amount(gross_amount_quote)
         self.balance -= gross_amount_quote
         self.assets[symbol]._deposit(amount_base)
+        self.TradeLog.add_log("Transaction succesful!", timestamp)
+        self.log_balance(symbol, timestamp)
         if self.verbose_action:
-            msg = (
-                f"Buying {display_price(amount_base, symbol)} for {display_price(amount_quote, self.symbol)} "
-                f"at {display_price(self.assets[symbol].price, self.symbol)}/{symbol} "
-                f"(Commission: {display_price(commission_quote, self.symbol)})"
-            )
             print(msg)
         # Record the transaction in the ledger for the asset
         self.Ledger.buy(
@@ -343,23 +388,33 @@ class Portfolio(Asset):
         Method to sell an amount of an asset in the portfolio.
 
         """
+        msg = f">>>>>>> SELLING TRANSACTION <<<<<<<"
+        self.TradeLog.add_log(msg, timestamp)
+        self.log_balance(symbol, timestamp)
         price = self.assets[symbol].price
         # if relative_amount:
         #     amount = self.get_balance(symbol=symbol) * amount
         if timestamp is None:
             timestamp = now_ms()
+        # In case of the amount is higher than the balance, sell the maximum possible
+        asset_value_quote = self.get_value(symbol=symbol, quote=self.symbol)
+        if amount_quote > asset_value_quote:
+            amount_quote = asset_value_quote * 0.9999 # To avoid rounding errors
         amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
+        msg = (
+            f"Selling {display_price(amount_base, symbol)} for {display_price(amount_quote, self.symbol)} "
+            f"at {display_price(self.assets[symbol].price, self.symbol)}/{symbol} "
+            f"(Commission: {display_price(commission_quote, self.symbol)})"
+        )
+        self.TradeLog.add_log(msg, timestamp)
         self.check_amount(commission_quote)
         net_amount_quote = amount_quote - commission_quote
         self.assets[symbol]._withdraw(amount_base)
         self.balance += net_amount_quote
+        self.TradeLog.add_log("Transaction succesful!", timestamp)
+        self.log_balance(symbol, timestamp)
         if self.verbose_action:
-            msg = (
-                f"Selling {display_price(amount_base, symbol)} for {display_price(amount_quote, self.symbol)} "
-                f"at {display_price(self.assets[symbol].price, self.symbol)}/{symbol} "
-                f"(Commission: {display_price(commission_quote, self.symbol)})"
-            )
             print(msg)
         # Record the transaction in the ledger for the asset
         self.Ledger.sell(
@@ -385,11 +440,24 @@ class Portfolio(Asset):
     def assets_list(self) -> list[str]:
         """
         Property to get the list of assets in the portfolio.
+        
+        Even if the balance is zero but there are prices, the asset is considered in the list.
 
         """
         assets_list = list(self.assets.keys())
         assets_list.sort()
         return assets_list
+    
+    @property
+    def positive_balance_assets_list(self) -> list[str]:
+        """
+        Property to get the list of assets in the portfolio with a positive balance.
+
+        """
+        # EVERYTHING SMALLER THAN 0.1 IS CONSIDERED 0
+        # This is useful to avoid displaying assets with a very small balance and trying to sell assets with a very small balance
+        MINIMAL_BALANCE = 0.1 # QUOTE
+        return [symbol for symbol in self.assets_list if self.assets[symbol].balance > MINIMAL_BALANCE]
     
     @property
     def all_symbols(self) -> list[str]:
@@ -874,7 +942,8 @@ class Portfolio(Asset):
         historical_equity = self._historical_equity
         resampled_historical_equity = self.resample_data(historical_equity, type='mean')
         equity = self.normalize_to_growth(resampled_historical_equity["Total"])
-        datetime = equity.index
+        timestamp = equity.index
+        datetime = pd.to_datetime(timestamp, unit="s")
         label = f"Equity ({display_percentage(self.roi)})"
         ax.plot(datetime, equity, label=label, color="black", linewidth=1)
         # Fill areas where y < 0 with red and y > 0 with green
@@ -887,7 +956,8 @@ class Portfolio(Asset):
         theoretical_hold_equity = self._historical_theoretical_hold_equity
         resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity, type='mean')
         theoretical_equity = self.normalize_to_growth(resampled_theoretical_hold_equity)
-        datetime = theoretical_equity.index
+        timestamp = theoretical_equity.index
+        datetime = pd.to_datetime(timestamp, unit="s")
         label = f"Hold ({display_percentage(self.hold_roi)})"
         hold_color = label_colors['hold']
         # Plot line
@@ -903,7 +973,8 @@ class Portfolio(Asset):
                 f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
             )
             asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
-            datetime = asset_prices.index
+            timestamp = asset_prices.index
+            datetime = pd.to_datetime(timestamp, unit="s")
             color = label_colors[asset]
             # Plot line
             ax.plot(datetime, asset_prices, label=label, linewidth=1, alpha=1, color=color)
