@@ -50,7 +50,7 @@ class Currency(Asset):
 
         """
         return (
-            display_price(self.balance, self.symbol),
+            display_price(self.balance),
             display_price(self.balance * self.price, self.portfolio_symbol),
             display_price(self.price, self.portfolio_symbol),
         )

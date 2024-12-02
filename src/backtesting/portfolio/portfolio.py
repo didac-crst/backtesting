@@ -56,6 +56,9 @@ class Portfolio(Asset):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        # EVERYTHING SMALLER THAN 0.1 IS CONSIDERED 0
+        # This is useful to avoid displaying assets with a very small balance and trying to sell assets with a very small balance
+        self.MINIMAL_BALANCE = 0.1 # QUOTE
         self.set_verbosity("verbose")
         self.set_portfolio_name()
         self.assets = dict()
@@ -134,6 +137,7 @@ class Portfolio(Asset):
         Dunder method to display the portfolio information as a string.
 
         """
+        self.empty_negligible_assets()
         text = (
                 f"Portfolio ({self.name}):\n"
                 f"  -> Symbol = {self.symbol}\n"
@@ -433,6 +437,17 @@ class Portfolio(Asset):
             commission=commission_quote,
         )
         self.print_portfolio()
+    
+    def empty_negligible_assets(self) -> None:
+        """
+        Method to empty the assets with a balance smaller than a tenth of MINIMAL_BALANCE.
+        
+        This is useful to avoid displaying assets with a very small balance and trying to sell assets with a very small balance.
+
+        """
+        for symbol in self.assets_list:
+            if self.get_value(symbol=symbol, quote=self.symbol) < self.MINIMAL_BALANCE/10:
+                self.assets[symbol].balance = 0
 
     # Portfolio reporting methods ------------------------------------------------
 
@@ -454,10 +469,8 @@ class Portfolio(Asset):
         Property to get the list of assets in the portfolio with a positive balance.
 
         """
-        # EVERYTHING SMALLER THAN 0.1 IS CONSIDERED 0
-        # This is useful to avoid displaying assets with a very small balance and trying to sell assets with a very small balance
-        MINIMAL_BALANCE = 0.1 # QUOTE
-        return [symbol for symbol in self.assets_list if self.assets[symbol].balance > MINIMAL_BALANCE]
+        # return [symbol for symbol in self.assets_list if self.assets[symbol].balance > self.MINIMAL_BALANCE]
+        return [symbol for symbol in self.assets_list if self.get_value(symbol=symbol, quote=self.symbol) > self.MINIMAL_BALANCE]
     
     @property
     def all_symbols(self) -> list[str]:
@@ -545,6 +558,18 @@ class Portfolio(Asset):
             return self.balance / price
         else:
             return (self.assets[symbol].balance * self.assets[symbol].price) / price
+        
+    @property
+    def export_assets(self) -> dict[str, float]:
+        """
+        Property to export the assets of the portfolio in a dictionary.
+
+        """
+        self.empty_negligible_assets()
+        export_assets = {asset:self.get_value(symbol=asset, quote=self.symbol) \
+                        for asset in self.assets if self.assets[asset].balance > 0}
+        export_assets[self.symbol] = float(self.balance)
+        return export_assets
     
     @property
     def liquidity_ratio(self) -> float:

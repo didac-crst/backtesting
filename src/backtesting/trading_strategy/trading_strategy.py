@@ -14,28 +14,29 @@ class TradingStrategies:
 
     """
 
-    name: str
-    initial_equity: float
     historical_prices: pd.DataFrame
     triggering_feature: str
     threshold_buy: float
     threshold_sell: float
+    initial_equity: Optional[float] = None
     quote_ticket_amount: float = 100.0
     maximal_assets_to_buy: int = 5
     commission_trade: float = 0.00075
     commission_transfer: float = 0.0
     portfolio_symbol: str = "USDT"
     description: Optional['str'] = None
-    initial_assets_list: Optional[list] = None
+    initial_assets_list: Optional[Union[list,dict]] = None
     minimal_liquidity_ratio: float = 0.05
     maximal_equity_per_asset_ratio: float = 0.1
+    number_of_portfolios: int = 1
 
     def __post_init__(self):
-        self.Portfolios_list = []
+        self.Portfolios = []
         self.historical_prices.set_index('timestamp_id', inplace=True)
         self.get_timestamps_list()
         self.current_timestamp = self.initial_timestamp
         self.assets_symbols_list = self.historical_prices['base'].unique()
+        self.create_portfolios()
         
     def get_timestamps_list(self) -> None:
         """
@@ -142,12 +143,27 @@ class TradingStrategies:
         prices = self.get_prices_on_timestamp(initial_timestamp)
         portfolio.update_prices(prices=prices, timestamp=initial_timestamp)
         for asset, weight in zip(self.assets_symbols_list, random_weights):
-            amount_quote = initial_balance * weight
+            amount_quote = initial_balance * float(weight)
             # We buy the asset if the amount is higher than 0, if not we skip it.
             if amount_quote > 0:
                 portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp)
+    
+    def buy_defined_asset(self, portfolio: Portfolio) -> None:
+        """
+        Buy the assets defined in the initial assets list as a dictionary.
+        
+        The dictionary contains the assets and their amounts in quote currency.
 
-    def create_random_single_portfolio(self) -> None:
+        """
+        initial_timestamp = self.initial_timestamp
+        prices = self.get_prices_on_timestamp(initial_timestamp)
+        portfolio.update_prices(prices=prices, timestamp=initial_timestamp)
+        for asset, amount_quote in self.initial_assets_list.items():
+            # We need to skip the portfolio symbol as we can't buy it.
+            if asset != self.portfolio_symbol:
+                portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp)
+
+    def create_single_portfolio(self) -> None:
         """
         Create a Portfolio object based on the strategy's attributes.
 
@@ -161,21 +177,31 @@ class TradingStrategies:
             commission_transfer=self.commission_transfer
         )
         PF.set_verbosity(type='silent')
-        PF.deposit(amount=self.initial_equity, timestamp=self.initial_timestamp)
-        self.buy_random_asset(PF)
+        # If we provide a dictionary, we use the assets and their amounts.
+        if isinstance(self.initial_assets_list, dict):
+            if self.initial_equity:
+                raise ValueError("You cannot provide an initial equity with initial assets list as a dictionary.")
+            # We calculate the initial equity based on the assets and their amounts.
+            self.initial_equity = pd.Series(self.initial_assets_list).sum()
+            PF.deposit(amount=self.initial_equity, timestamp=self.initial_timestamp)
+            self.buy_defined_asset(PF)
+        # If we provide a list or nothing, we use the assets and their weights.
+        else:
+            PF.deposit(amount=self.initial_equity, timestamp=self.initial_timestamp)
+            self.buy_random_asset(PF)
         # previous_amount_factor = {asset: 0 for asset in PF.assets_list}
         # print(previous_amount_factor)
         # PF.previous_amount_factor = previous_amount_factor
-        self.Portfolios_list.append(PF)
+        self.Portfolios.append(PF)
 
     
-    def create_random_portfolios(self, n: int):
+    def create_portfolios(self) -> None:
         """
         Create multiple Portfolio objects based on the strategy's attributes.
 
         """
-        for _ in range(n):
-            self.create_random_single_portfolio()
+        for _ in range(self.number_of_portfolios):
+            self.create_single_portfolio()
     
     def update_prices(self) -> None:
         """
@@ -183,7 +209,7 @@ class TradingStrategies:
 
         """
         prices = self.get_prices_on_timestamp(self.current_timestamp)
-        for PF in self.Portfolios_list:
+        for PF in self.Portfolios:
             PF.update_prices(prices=prices, timestamp=self.current_timestamp)
     
     @property
@@ -235,7 +261,7 @@ class TradingStrategies:
         Ensure liquidity in the Portfolios.
 
         """
-        for PF in self.Portfolios_list:
+        for PF in self.Portfolios:
             min_liquidity = self.minimal_liquidity_ratio * PF.equity_value
             while PF.balance < min_liquidity:
                 # We find out the owned assets with low performance.
@@ -253,7 +279,7 @@ class TradingStrategies:
 
         """
         self.ensure_liquidity()
-        for PF in self.Portfolios_list:
+        for PF in self.Portfolios:
             for asset in self.current_assets_to_buy:
                 # We buy the asset only if we have enough cash.
                 if PF.balance > self.quote_ticket_amount:
