@@ -42,9 +42,17 @@ class Currency(Asset):
         """
         self.check_amount(amount)
         self.balance -= amount
+    
+    @property
+    def value(self) -> float:
+        """
+        Property to get the value of the asset.
+
+        """
+        return self.balance * self.price
 
     @property
-    def values(self) -> tuple[str, str, str]:
+    def info(self) -> tuple[str, str, str]:
         """
         Property to get the balance, value and price of the asset.
 

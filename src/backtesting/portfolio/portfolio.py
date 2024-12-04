@@ -127,7 +127,6 @@ class TradeLog(ActivityLog):
             display_msg += f"\n-> Comment: {msg}"
         display_msg += f"\n"
         print(display_msg)
-    
         
     def print_symbol(self, symbol: str) -> None:
         for id in range(self.count):
@@ -203,32 +202,33 @@ class Portfolio(Asset):
                 "Price",
                 "Transactions",
                 "Total traded",
+                "Performance",
+                "Gains",
                 "Currency growth",
                 "Hold gains",
             ]
         ]
         hold_gains = self._hold_gains_assets
+        performance_assets = self.performance_assets
+        gains_assets = self.gains_assets
         for asset_symbol in self.assets_list:
             Currency = self.assets[asset_symbol]
-            # We want to keep the real value of the asset to order the table
-            # This returns the value of the asset in the portfolio currency
-            # The sorting will be done in display_pretty_table,
-            # After sorting, this element will be removed
-            tmp_asset_value = self.get_value(symbol=asset_symbol, quote=self.symbol)
             # Display only the assets with transactions
             if self.transactions_count(asset_symbol) > 0:
                 data.append(
                     [
                         asset_symbol,
-                        *Currency.values,
+                        *Currency.info,
                         display_integer(self.transactions_count(asset_symbol)),
                         display_price(self.transactions_sum(asset_symbol), self.symbol),
+                        display_percentage(performance_assets[asset_symbol]),
+                        display_price(gains_assets[asset_symbol], self.symbol),
                         display_percentage(self.get_asset_growth(asset_symbol)),
                         display_price(hold_gains[asset_symbol], self.symbol),
-                        tmp_asset_value
+                        gains_assets[asset_symbol], # Only for sorting #1
                     ]
                 )
-        return display_pretty_table(data, padding=6)
+        return display_pretty_table(data, quote_currency= self.symbol, padding=6, sorting_columns=1)
 
     def __repr__(self) -> str:
         """
@@ -582,7 +582,7 @@ class Portfolio(Asset):
 
         """
         return sum(
-            [Currency.balance * Currency.price for Currency in self.assets.values()]
+            [Currency.value for Currency in self.assets.values()]
         )
 
     @property
@@ -853,6 +853,47 @@ class Portfolio(Asset):
             return (self.gains / investment).round(5)
         else:
             return 0.0
+    
+    @property
+    def performance_assets_raw_info(self) -> pd.DataFrame:
+        """
+        Property to get the information to calculate the performance and the gains for each asset in the portfolio.
+
+        """
+        # We get the quote quote of the assets traded (bought and sold) segregated by the symbol
+        traded_assets_value = self.Ledger.traded_assets_values
+        traded_assets_list = list(traded_assets_value.index)
+        # We get the remaining values of the assets in the portfolio
+        assets_values = list()
+        for symbol in traded_assets_list:
+            assets_values.append(self.assets[symbol].value)
+        assets_values_df = pd.DataFrame({'asset':traded_assets_list, 'value':assets_values})
+        assets_values_df.set_index('asset', inplace=True)
+        # We merge the traded assets and the remaining assets
+        performance_assets_raw_info = pd.merge(traded_assets_value, assets_values_df, left_index=True, right_index=True, how='outer')
+        # We need to count the commissions payed for each transaction
+        performance_assets_raw_info['commissions'] = (performance_assets_raw_info['BUY'] + performance_assets_raw_info['SELL']) * self.commission_trade
+        return performance_assets_raw_info
+    
+    @property
+    def performance_assets(self) -> pd.Series:
+        """
+        Property to get the performance of the assets in the portfolio.
+
+        """
+        assets_raw_info = self.performance_assets_raw_info
+        performance = ((assets_raw_info['value'] + assets_raw_info['SELL'] - assets_raw_info['commissions']) / assets_raw_info['BUY'])-1
+        return performance
+    
+    @property
+    def gains_assets(self) -> pd.Series:
+        """
+        Property to get the gains of the assets in the portfolio.
+
+        """
+        assets_raw_info = self.performance_assets_raw_info
+        gains = assets_raw_info['value'] + assets_raw_info['SELL'] - assets_raw_info['commissions'] - assets_raw_info['BUY']
+        return gains
 
     def calculate_historical_theoretical_hold_equity(self) -> None:
         """

@@ -94,20 +94,28 @@ def add_padding_table(table: pt.PrettyTable, padding: int) -> str:
     return table_str
 
 
-def display_pretty_table(data: list[list[str]], padding: int = 0) -> str:
+def display_pretty_table(data: list[list[str]], quote_currency:str, padding: int = 0, sorting_columns: int = 0) -> str:
     """
     Function to display a pretty table with the data provided.
+    
+    Sorting columns are the last columns of the table, which are used to sort the table.
+    After sorting, the last columns are removed from the table.
 
     """
+    zero = "0.00"
     table = pt.PrettyTable()
     table.field_names = data[0]
     payload = data[1:]
-    # Sort the assets by the last column, where the quote value is stored
-    sorted_assets = sorted(payload, key=lambda asset: asset[-1], reverse=True)
-    for row in sorted_assets:
-        # Remove the last element `.pop()` of the row, which is the quote value
-        # It is not displayed in the table
-        row.pop()
+    # Here we sort the table by the last columns
+    if sorting_columns > 0:
+        payload = sorted(payload, key=lambda asset: tuple(asset[-i-1] for i in range(sorting_columns)), reverse=True)
+    for row in payload:
+        # Remove the sorting columns
+        row = row[:-sorting_columns]
+        for element in range(len(row)):
+            if (row[element] == zero) or (row[element] == f"{zero}%") or (row[element] == f"{zero} {quote_currency}"):
+                tail_length = len(row[element].replace("0.00", ""))
+                row[element] = f"---{" " * tail_length}"
         table.add_row(row)
     for field in table.field_names:
         if field == table.field_names[0]:

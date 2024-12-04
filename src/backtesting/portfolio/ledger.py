@@ -367,3 +367,18 @@ class Ledger:
         # Calculate the total equity
         equity_df["Total"] = equity_df.sum(axis=1)
         return equity_df
+
+    @property
+    def traded_assets_values(self) -> dict[str, float]:
+        """
+        Property to get the total traded amount for each asset and segregated by action [BUY, SELL].
+
+        """
+        transactions = self.transactions_df
+        assets_transactions=transactions[transactions['Symbol']!='USDT']
+        traded_assets_values = assets_transactions.pivot_table(index='Symbol', columns='Action', values='Traded', aggfunc='sum').fillna(0)
+        if 'BUY' not in traded_assets_values.columns:
+            traded_assets_values['BUY']=0
+        if 'SELL' not in traded_assets_values.columns:
+            traded_assets_values['SELL']=0
+        return traded_assets_values
