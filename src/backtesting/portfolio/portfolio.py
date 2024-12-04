@@ -211,23 +211,24 @@ class Portfolio(Asset):
         hold_gains = self._hold_gains_assets
         performance_assets = self.performance_assets
         gains_assets = self.gains_assets
-        for asset_symbol in self.assets_list:
+        # for asset_symbol in self.assets_list:
+        for asset_symbol in self.assets_traded_list:
             Currency = self.assets[asset_symbol]
             # Display only the assets with transactions
-            if self.transactions_count(asset_symbol) > 0:
-                data.append(
-                    [
-                        asset_symbol,
-                        *Currency.info,
-                        display_integer(self.transactions_count(asset_symbol)),
-                        display_price(self.transactions_sum(asset_symbol), self.symbol),
-                        display_percentage(performance_assets[asset_symbol]),
-                        display_price(gains_assets[asset_symbol], self.symbol),
-                        display_percentage(self.get_asset_growth(asset_symbol)),
-                        display_price(hold_gains[asset_symbol], self.symbol),
-                        gains_assets[asset_symbol], # Only for sorting #1
-                    ]
-                )
+            # if self.transactions_count(asset_symbol) > 0:
+            data.append(
+                [
+                    asset_symbol,
+                    *Currency.info,
+                    display_integer(self.transactions_count(asset_symbol)),
+                    display_price(self.transactions_sum(asset_symbol), self.symbol),
+                    display_percentage(performance_assets[asset_symbol]),
+                    display_price(gains_assets[asset_symbol], self.symbol),
+                    display_percentage(self.get_asset_growth(asset_symbol)),
+                    display_price(hold_gains[asset_symbol], self.symbol),
+                    gains_assets[asset_symbol], # Only for sorting #1
+                ]
+            )
         return display_pretty_table(data, quote_currency= self.symbol, padding=6, sorting_columns=1)
 
     def __repr__(self) -> str:
@@ -269,9 +270,9 @@ class Portfolio(Asset):
                 f"  -> ROI Performance (vs Hold) = {display_percentage(self.roi_vs_hold_roi)}\n"
                 f"  -> Assets:"
             )
-            if len(self.assets) > 0:
+            if len(self.assets_traded_list) > 0:
                 text += f"\n{self._assets_table}\n\n"
-            # I think that this else is useless because the if self.historical_prices.empty.
+            # This applies only in case of having updated the prices but not having any transaction yet.
             else:
                 text += " None\n\n"
         return text
@@ -557,6 +558,14 @@ class Portfolio(Asset):
         assets_list = list(self.assets.keys())
         assets_list.sort()
         return assets_list
+    
+    @property
+    def assets_traded_list(self) -> list[str]:
+        """
+        Property to get the list of assets in the portfolio with transactions.
+
+        """
+        return [symbol for symbol in self.assets_list if self.transactions_count(symbol) > 0]
     
     @property
     def positive_balance_assets_list(self) -> list[str]:

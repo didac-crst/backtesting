@@ -50,7 +50,7 @@ def display_percentage(amount: float) -> str:
 
     """
     amount100 = amount * 100
-    return display_price(amount100) + "%"
+    return display_price(amount100) + " %"
 
 
 def display_integer(amount: int, unit: Optional[str] = None) -> str:
@@ -78,6 +78,8 @@ def display_price(amount: float, unit: Optional[str] = None) -> str:
         if factor > 0:
             depth = factor + 1
             text = f"{amount:.{depth}f}"
+    elif amount == 0:
+        text = "---"
     if unit is not None:
         text += f" {unit}"
     return text
@@ -102,7 +104,6 @@ def display_pretty_table(data: list[list[str]], quote_currency:str, padding: int
     After sorting, the last columns are removed from the table.
 
     """
-    zero = "0.00"
     table = pt.PrettyTable()
     table.field_names = data[0]
     payload = data[1:]
@@ -112,10 +113,6 @@ def display_pretty_table(data: list[list[str]], quote_currency:str, padding: int
     for row in payload:
         # Remove the sorting columns
         row = row[:-sorting_columns]
-        for element in range(len(row)):
-            if (row[element] == zero) or (row[element] == f"{zero}%") or (row[element] == f"{zero} {quote_currency}"):
-                tail_length = len(row[element].replace("0.00", ""))
-                row[element] = f"---{" " * tail_length}"
         table.add_row(row)
     for field in table.field_names:
         if field == table.field_names[0]:
