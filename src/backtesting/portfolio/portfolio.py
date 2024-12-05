@@ -149,6 +149,7 @@ class Portfolio(Asset):
     commission_trade: float = 0.0
     commission_transfer: float = 0.0
     frequency_displayed: str = "1h"
+    transaction_id: int = 0
 
     # Portfolio internal methods ------------------------------------------------
 
@@ -175,6 +176,14 @@ class Portfolio(Asset):
         
     #     """
     #     return self.Ledger.check_update
+    
+    def new_transaction_id(self) -> int:
+        """
+        Method to get a new transaction ID.
+
+        """
+        self.transaction_id += 1
+        return self.transaction_id
     
     @property
     def evolution_id(self) -> int:
@@ -387,7 +396,7 @@ class Portfolio(Asset):
         # Record the price of the portfolio currency
         # This is necessary for the equity calculation
         # However, we don't want to create a new asset for the portfolio currency
-        self.Ledger.record_price(timestamp=timestamp, symbol=self.symbol, price=1)
+        self.Ledger.record_price(timestamp=timestamp, symbol=self.symbol, price=1.0)
         # Re-enable the verbose_status flag if it was enabled before
         if verbose_status_flag:
             self.verbose_status = True
@@ -433,19 +442,26 @@ class Portfolio(Asset):
         Method to deposit an amount into the portfolio.
 
         """
+        # If the timestamp is not provided, it will be the current time
+        # This is only if we needed to test the class without having any data.
         if timestamp is None:
             timestamp = now_ms()
+        transaction_id = self.new_transaction_id()
+        balance_pre = self.balance
         commission = amount * self.commission_transfer
         net_amount = amount - commission
-        self.commissions_sum += commission
-        self.balance += net_amount
+        self.commissions_sum += float(commission)
+        self.balance += float(net_amount)
         # Record the transaction in the ledger for the portfolio currency
         self.Ledger.buy(
+            id=transaction_id,
             timestamp=timestamp,
+            trade=False,
             symbol=self.symbol,
             amount=amount,
             price=1,
             commission=commission,
+            balance_pre=balance_pre,
         )
         # Record the capital movement in the ledger
         self.Ledger.invest_capital(timestamp=timestamp, amount=amount)
@@ -457,6 +473,8 @@ class Portfolio(Asset):
         Method to withdraw an amount from the portfolio.
 
         """
+        transaction_id = self.new_transaction_id()
+        balance_pre = self.balance
         if relative_amount:
             gross_amount = self.balance * amount
             amount = gross_amount / (1 + self.commission_transfer)
@@ -474,15 +492,18 @@ class Portfolio(Asset):
             # If the amount is still higher, raise the error
             else:
                 raise e
-        self.commissions_sum += commission
-        self.balance -= gross_amount
+        self.commissions_sum += float(commission)
+        self.balance -= float(gross_amount)
         # Record the transaction in the ledger for the portfolio currency
         self.Ledger.sell(
+            id=transaction_id,
             timestamp=timestamp,
+            trade=False,
             symbol=self.symbol,
             amount=amount,
             price=1,
             commission=commission,
+            balance_pre=balance_pre,
         )
         # Record the capital movement in the ledger
         self.Ledger.disburse_capital(timestamp=timestamp, amount=amount)
@@ -496,6 +517,9 @@ class Portfolio(Asset):
         Method to buy an amount of an asset in the portfolio.
 
         """
+        transaction_id = self.new_transaction_id()
+        balance_liquid_pre = self.balance
+        balance_asset_pre = self.get_value(symbol=symbol, quote=symbol)
         price = self.assets[symbol].price
         if timestamp is None:
             timestamp = now_ms()
@@ -504,23 +528,29 @@ class Portfolio(Asset):
         log_id = self.log_buy_transaction(timestamp, symbol, amount_base, amount_quote, price, commission_quote, msg=msg)
         gross_amount_quote = amount_quote + commission_quote
         self.check_amount(gross_amount_quote)
-        self.balance -= gross_amount_quote
+        self.balance -= float(gross_amount_quote)
         self.assets[symbol]._deposit(amount_base)
         # Record the transaction in the ledger for the asset
         self.Ledger.buy(
+            id=transaction_id,
             timestamp=timestamp,
+            trade=True,
             symbol=symbol,
             amount=amount_base,
             price=self.assets[symbol].price,
             commission=0,
+            balance_pre=balance_asset_pre
         )
         # Record the transaction in the ledger for the portfolio currency
         self.Ledger.sell(
+            id=transaction_id,
             timestamp=timestamp,
+            trade=True,
             symbol=self.symbol,
             amount=amount_quote,
             price=1,
             commission=commission_quote,
+            balance_pre=balance_liquid_pre
         )
         self.log_ack(log_id)
         self.print_portfolio()
@@ -533,6 +563,9 @@ class Portfolio(Asset):
         Method to sell an amount of an asset in the portfolio.
 
         """
+        transaction_id = self.new_transaction_id()
+        balance_liquid_pre = self.balance
+        balance_asset_pre = self.get_value(symbol=symbol, quote=symbol)
         price = self.assets[symbol].price
         # if relative_amount:
         #     amount = self.get_balance(symbol=symbol) * amount
@@ -548,22 +581,28 @@ class Portfolio(Asset):
         self.check_amount(commission_quote)
         net_amount_quote = amount_quote - commission_quote
         self.assets[symbol]._withdraw(amount_base)
-        self.balance += net_amount_quote
+        self.balance += float(net_amount_quote)
         # Record the transaction in the ledger for the asset
         self.Ledger.sell(
+            id=transaction_id,
             timestamp=timestamp,
+            trade=True,
             symbol=symbol,
             amount=amount_base,
             price=self.assets[symbol].price,
             commission=0,
+            balance_pre=balance_asset_pre
         )
         # Record the transaction in the ledger for the portfolio currency
         self.Ledger.buy(
+            id=transaction_id,
             timestamp=timestamp,
+            trade=True,
             symbol=self.symbol,
             amount=amount_quote,
             price=1,
             commission=commission_quote,
+            balance_pre=balance_liquid_pre
         )
         self.log_ack(log_id)
         self.print_portfolio()

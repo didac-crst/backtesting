@@ -31,11 +31,13 @@ class Transaction:
     Dataclass to store the transactions in the ledger.
 
     """
-
+    id: int
     timestamp: int
+    trade: bool
     action: str
     symbol: str
     amount: float
     price: float
     traded: float
     commission: float
+    balance_pre: float

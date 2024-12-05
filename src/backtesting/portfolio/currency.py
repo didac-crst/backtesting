@@ -25,7 +25,7 @@ class Currency(Asset):
         Method to update the price of the currency.
 
         """
-        self.price = price
+        self.price = float(price)
 
     @check_positive
     def _deposit(self, amount: float) -> None:

@@ -2,9 +2,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import pandas as pd
+import numpy as np
 
 from .record_objects import Capital, CurrencyPrice, Transaction
-from .support import check_property_update
+from .support import check_property_update, display_price
 
 
 @dataclass
@@ -43,7 +44,7 @@ class Ledger:
         Method to record a capital movement in the ledger.
 
         """
-        capital = Capital(timestamp=timestamp, action=action, amount=amount)
+        capital = Capital(timestamp=timestamp, action=action, amount=float(amount))
         self.capital.append(capital)
 
     def invest_capital(self, timestamp: int, amount: float) -> None:
@@ -69,17 +70,20 @@ class Ledger:
         Method to record a currency price in the ledger.
 
         """
-        currency_price = CurrencyPrice(timestamp=timestamp, symbol=symbol, price=price)
+        currency_price = CurrencyPrice(timestamp=timestamp, symbol=symbol, price=float(price))
         self.prices.append(currency_price)
 
     def record_transaction(
         self,
+        id: int,
         timestamp: int,
+        trade: bool,
         action: str,
         symbol: str,
         amount: float,
         price: float,
         commission: float,
+        balance_pre: float,
     ) -> None:
         """
         Method to record a transaction in the ledger.
@@ -87,44 +91,54 @@ class Ledger:
         """
         traded = amount * price
         transaction = Transaction(
+            id=id,
             timestamp=timestamp,
+            trade=trade,
             action=action,
             symbol=symbol,
-            amount=amount,
-            price=price,
-            traded=traded,
-            commission=commission,
+            amount=float(amount),
+            price=float(price),
+            traded=float(traded),
+            commission=float(commission),
+            balance_pre=float(balance_pre),
         )
         self.transactions.append(transaction)
+        # We keep track of the assets that have been traded
         self.record_active_asset(symbol)
 
     def buy(
         self,
+        id: int,
         timestamp: int,
+        trade: bool,
         symbol: str,
         amount: float,
         price: float,
         commission: float,
+        balance_pre: float,
     ) -> None:
         """
         Method to record a buy transaction in the ledger.
 
         """
-        self.record_transaction(timestamp, "BUY", symbol, amount, price, commission)
+        self.record_transaction(id, timestamp, trade, "BUY", symbol, amount, price, commission, balance_pre)
 
     def sell(
         self,
+        id: int,
         timestamp: int,
+        trade: bool,
         symbol: str,
         amount: float,
         price: float,
         commission: float,
+        balance_pre: float,
     ) -> None:
         """
         Method to record a sell transaction in the ledger.
 
         """
-        self.record_transaction(timestamp, "SELL", symbol, amount, price, commission)
+        self.record_transaction(id, timestamp, trade, "SELL", symbol, amount, price, commission, balance_pre)
 
     # Ledger reporting methods ------------------------------------------------
         
@@ -295,23 +309,29 @@ class Ledger:
         for transaction in self.transactions:
             data.append(
                 (
+                    transaction.id,
                     transaction.timestamp,
+                    transaction.trade,
                     transaction.action,
                     transaction.symbol,
                     transaction.amount,
                     transaction.price,
                     transaction.traded,
                     transaction.commission,
+                    transaction.balance_pre,
                 )
             )
         columns = (
+            "Id",
             "Timestamp",
+            "Trade",
             "Action",
             "Symbol",
             "Amount",
             "Price",
             "Traded",
             "Commission",
+            "Balance_Pre",
         )
         df = pd.DataFrame(data, columns=columns)
         return df
@@ -413,19 +433,64 @@ class Ledger:
         id = f"p{prices_count}_t{transactions_count}"
         return id
     
-    # @property
-    # def check_update(self) -> bool:
-    #     """
-    #     Property to check if the ledger has been updated.
-        
-    #     If there are new transactions or prices, the ledger has been updated.
-        
-    #     """
-    #     return self.evolution_id != self._evolution_id
+    @property
+    @check_property_update
+    def log_df(self) -> pd.DataFrame:
+        transaction_df=self.transactions_df
+        # We only keep the trades, not the capital movements
+        trade_df=transaction_df[transaction_df['Trade']].copy()
+        trade_df.drop(columns=['Trade'], inplace=True)
+        # We segregate the liquid side from the asset side of the trades
+        # Afterwards we will merge them thanks to the Transaction id
+        asset_trade_df = trade_df[trade_df.Symbol != self.portfolio_symbol].copy()
+        # Commissions are burned on the liquid side
+        # All assets have 0 commission
+        asset_trade_df.drop(columns=['Commission'], inplace=True)
+        # We change the name of the columns to avoid confusion
+        asset_trade_df.rename(columns={'Balance_Pre':'Balance_Asset_Pre'}, inplace=True)
+        asset_trade_df.set_index('Id', inplace=True)
+        liquid_trade_df = trade_df[trade_df.Symbol == self.portfolio_symbol].copy()
+        # We keep only the necessary columns - Everything else is already in the asset_trade_df - no need to duplicate
+        liquid_trade_df=liquid_trade_df[['Id','Commission', 'Balance_Pre']]
+        liquid_trade_df.rename(columns={'Balance_Pre':'Balance_Liquid_Pre'}, inplace=True)
+        liquid_trade_df.set_index('Id', inplace=True)
+        # We merge the asset and liquid trades to have a complete log
+        trade_log = asset_trade_df.merge(liquid_trade_df, on='Id')
+        # Depending on the action we will add or subtract the traded amount to the balance
+        trade_log['Trade_Sign'] = np.where(trade_log['Action'] == 'BUY', 1, -1)
+        # We calculate the post trade balances
+        trade_log['Balance_Asset_Post'] = trade_log['Balance_Asset_Pre'] + (trade_log['Amount'] * trade_log['Trade_Sign'])
+        trade_log['Balance_Liquid_Post'] = trade_log['Balance_Liquid_Pre'] - (trade_log['Traded'] * trade_log['Trade_Sign']) - trade_log['Commission']
+        return trade_log
     
-    # def update_done(self) -> None:
-    #     """
-    #     Method to update the evolution id of the ledger.
+    def print_log(self, id: int) -> None:
+        """
+        Method to print a log entry.
+            
+        """
+        log_entry = self.log_df.loc[id].to_dict()
+        trade_type = f"{log_entry["Action"]}ING"
+        timestamp = log_entry["Timestamp"]
+        symbol = log_entry["Symbol"]
+        price = log_entry["Price"]
+        amount_base = log_entry["Amount"]
+        amount_quote = amount_base * price
+        balance_asset_pre = log_entry["Balance_Asset_Pre"]
+        balance_asset_post = log_entry["Balance_Asset_Post"]
+        balance_liquid_pre = log_entry["Balance_Liquid_Pre"]
+        balance_liquid_post = log_entry["Balance_Liquid_Post"]
+        display_msg = f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {symbol.upper()} - {trade_type.upper()} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+        transaction_msg = (
+            f"{trade_type.capitalize()} {display_price(amount_base, symbol)} for {display_price(amount_quote, self.portfolio_symbol)} "
+            f"at {display_price(price, self.portfolio_symbol)}/{symbol} "
+            f"(Commission: {display_price(log_entry['Commission'], self.portfolio_symbol)})"
+        )   
+        display_msg += f"\n[{id}] - Timestamp: {timestamp}"
+        display_msg += f"\n-> BALANCE PRE-TRADE: ASSET: {display_price(balance_asset_pre, symbol)} ({display_price(balance_asset_pre * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_pre, self.portfolio_symbol)}"
+        display_msg += f"\n-> {transaction_msg}"
+        display_msg += f"\n-> BALANCE POST-TRADE: ASSET: {display_price(balance_asset_post, symbol)} ({display_price(balance_asset_post * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_post, self.portfolio_symbol)}"
+        # for msg in log_entry["msg"]:
+        #     display_msg += f"\n-> Comment: {msg}"
+        display_msg += f"\n"
+        print(display_msg)
         
-    #     """
-    #     self._evolution_id = self.evolution_id
