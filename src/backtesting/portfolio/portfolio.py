@@ -19,7 +19,8 @@ from .support import (
     thousands,
     to_percent,
     display_pretty_table,
-    get_random_name
+    get_random_name,
+    check_property_update,
 )
 
 VerboseType = Literal["silent", "action", "status", "verbose"]
@@ -160,17 +161,31 @@ class Portfolio(Asset):
         self.set_portfolio_name()
         self.assets = dict()
         self.Ledger = Ledger(portfolio_symbol=self.symbol)
+        # We need to keep track of the properties that have been calculated
+        self._properties_evolution_id = dict() # This dictionary will store the evolution_id of each property
+        self._properties_cached = dict() # This dictionary will store the cached value of each property
         self.TradeLog = TradeLog(symbol_quote=self.symbol)
     
+    # @property
+    # def check_update(self) -> bool:
+    #     """
+    #     Property to check if the ledger has been updated.
+        
+    #     If there are new transactions or prices, the ledger has been updated.
+        
+    #     """
+    #     return self.Ledger.check_update
+    
     @property
-    def check_update(self) -> bool:
+    def evolution_id(self) -> int:
         """
-        Property to check if the ledger has been updated.
+        Property to get the evolution ID of the Ledger.
         
-        If there are new transactions or prices, the ledger has been updated.
-        
+        This is useful to check if the Ledger has new transactions or prices and
+        force the recalculation of the properties.
+
         """
-        return self.Ledger.check_update
+        return self.Ledger.evolution_id
     
     def set_portfolio_name(self) -> None:
         """
@@ -199,55 +214,55 @@ class Portfolio(Asset):
             self.verbose_action = False
         
     @property
+    @check_property_update
     def assets_table(self) -> str:
         """
         Property to create a pretty table with the assets' information.
 
         """
-        # We only calculate the assets_table if the ledger has been updated
-        if self.check_update:
-            data = [
-                [
-                    "Symbol",
-                    "Balance",
-                    "Value",
-                    "Price",
-                    "Transactions",
-                    "Total traded",
-                    "Performance",
-                    "Gains",
-                    "Currency growth",
-                    "Hold gains",
-                ]
+        data = [
+            [
+                "Symbol",
+                "Balance",
+                "Value",
+                "Price",
+                "Transactions",
+                "Total traded",
+                "Performance",
+                "Gains",
+                "Currency growth",
+                "Hold gains",
             ]
-            hold_gains = self.hold_gains_assets
-            performance_assets = self.performance_assets
-            gains_assets = self.gains_assets
-            # for asset_symbol in self.assets_list:
-            for asset_symbol in self.assets_traded_list:
-                Currency = self.assets[asset_symbol]
-                # Display only the assets with transactions
-                # if self.transactions_count(asset_symbol) > 0:
-                data.append(
-                    [
-                        asset_symbol,
-                        *Currency.info,
-                        display_integer(self.transactions_count(asset_symbol)),
-                        display_price(self.transactions_sum(asset_symbol), self.symbol),
-                        display_percentage(performance_assets[asset_symbol]),
-                        display_price(gains_assets[asset_symbol], self.symbol),
-                        display_percentage(self.get_asset_growth(asset_symbol)),
-                        display_price(hold_gains[asset_symbol], self.symbol),
-                        gains_assets[asset_symbol], # Only for sorting #1
-                    ]
-                )
-            self._assets_table = display_pretty_table(data, quote_currency= self.symbol, padding=6, sorting_columns=1)
-        return self._assets_table
-
-    def __repr__(self) -> str:
+        ]
+        hold_gains = self.hold_gains_assets
+        performance_assets = self.performance_assets
+        gains_assets = self.gains_assets
+        # for asset_symbol in self.assets_list:
+        for asset_symbol in self.assets_traded_list:
+            Currency = self.assets[asset_symbol]
+            # Display only the assets with transactions
+            # if self.transactions_count(asset_symbol) > 0:
+            data.append(
+                [
+                    asset_symbol,
+                    *Currency.info,
+                    display_integer(self.transactions_count(asset_symbol)),
+                    display_price(self.transactions_sum(asset_symbol), self.symbol),
+                    display_percentage(performance_assets[asset_symbol]),
+                    display_price(gains_assets[asset_symbol], self.symbol),
+                    display_percentage(self.get_asset_growth(asset_symbol)),
+                    display_price(hold_gains[asset_symbol], self.symbol),
+                    gains_assets[asset_symbol], # Only for sorting #1
+                ]
+            )
+        return display_pretty_table(data, quote_currency= self.symbol, padding=6, sorting_columns=1)
+    
+    @property
+    @check_property_update
+    def text_repr(self) -> str:
         """
-        Dunder method to display the portfolio information as a string.
-
+        Property to display the portfolio information as a string.
+        
         """
         self.empty_negligible_assets()
         text = (
@@ -288,6 +303,13 @@ class Portfolio(Asset):
             else:
                 text += " None\n\n"
         return text
+
+    def __repr__(self) -> str:
+        """
+        Dunder method to display the portfolio information as a string.
+
+        """
+        return self.text_repr
 
     def print_portfolio(self) -> None:
         """
@@ -560,6 +582,7 @@ class Portfolio(Asset):
     # Portfolio reporting methods ------------------------------------------------
 
     @property
+    @check_property_update
     def assets_list(self) -> list[str]:
         """
         Property to get the list of assets in the portfolio.
@@ -567,36 +590,30 @@ class Portfolio(Asset):
         Even if the balance is zero but there are prices, the asset is considered in the list.
 
         """
-        # We only calculate the assets_list if the ledger has been updated
-        if self.check_update:
-            assets_list = list(self.assets.keys())
-            assets_list.sort()
-            self._assets_list = assets_list
-        return self._assets_list
+        assets_list = list(self.assets.keys())
+        assets_list.sort()
+        return assets_list
     
     @property
+    @check_property_update
     def assets_traded_list(self) -> list[str]:
         """
         Property to get the list of assets in the portfolio with transactions.
 
         """
-        # We only calculate the assets_traded_list if the ledger has been updated
-        if self.check_update:
-            self._assets_traded_list = [symbol for symbol in self.assets_list if self.transactions_count(symbol) > 0]
-        return self._assets_traded_list
+        return [symbol for symbol in self.assets_list if self.transactions_count(symbol) > 0]
     
     @property
+    @check_property_update
     def positive_balance_assets_list(self) -> list[str]:
         """
         Property to get the list of assets in the portfolio with a positive balance.
 
         """
-        # We only calculate the positive_balance_assets_list if the ledger has been updated
-        if self.check_update:
-            self._positive_balance_assets_list = [symbol for symbol in self.assets_list if self.get_value(symbol=symbol, quote=self.symbol) > self.MINIMAL_BALANCE]
-        return self._positive_balance_assets_list
+        return [symbol for symbol in self.assets_list if self.get_value(symbol=symbol, quote=self.symbol) > self.MINIMAL_BALANCE]
     
     @property
+    @check_property_update
     def all_symbols(self) -> list[str]:
         """
         Property to get the list of all symbols in the portfolio.
@@ -605,28 +622,24 @@ class Portfolio(Asset):
         return [self.symbol, *self.assets_list]
 
     @property
+    @check_property_update
     def assets_value(self) -> float:
         """
         Property to get the value of the assets in the portfolio.
 
         """
-        # We only calculate the assets_value if the ledger has been updated
-        if self.check_update:
-            self._assets_value = sum(
+        return sum(
                 [Currency.value for Currency in self.assets.values()]
             )
-        return self._assets_value
 
     @property
+    @check_property_update
     def equity_value(self) -> float:
         """
         Property to get the total or equity value of the portfolio.
 
         """
-        # We only calculate the equity_value if the ledger has been updated
-        if self.check_update:
-            self._equity_value = self.balance + self.assets_value
-        return self._equity_value
+        return self.balance + self.assets_value
 
     @property
     def total_commissions(self) -> float:
@@ -702,6 +715,7 @@ class Portfolio(Asset):
         return export_assets
     
     @property
+    @check_property_update
     def liquidity_ratio(self) -> float:
         """
         Property to get the liquidity ratio of the portfolio.
@@ -718,17 +732,16 @@ class Portfolio(Asset):
         return self.Ledger.capital_df
 
     @property
+    @check_property_update
     def ledger_capital(self) -> pd.DataFrame:
         """
         Property to get the capital movements as a DataFrame with readable timestamps.
 
         """
-        # We only calculate the ledger_capital if the ledger has been updated
-        if self.check_update:
-            capital_df = self.historical_capital
-            capital_df["Timestamp"] = pd.to_datetime(capital_df["Timestamp"], unit="ms")
-            self._ledger_capital = capital_df.set_index("Timestamp")
-        return self._ledger_capital
+        capital_df = self.historical_capital
+        capital_df["Timestamp"] = pd.to_datetime(capital_df["Timestamp"], unit="ms")
+        ledger_capital = capital_df.set_index("Timestamp")
+        return ledger_capital
 
     @property
     def invested_capital(self) -> float:
@@ -755,6 +768,7 @@ class Portfolio(Asset):
         return self.Ledger.prices_df
 
     @property
+    @check_property_update
     def historical_prices_pivot(self) -> pd.DataFrame:
         """
         Property to pivot the historical currency prices DataFrame.
@@ -762,29 +776,26 @@ class Portfolio(Asset):
         This is useful to have the prices of each currency in columns.
 
         """
-        # We only calculate the historical_prices_pivot if the ledger has been updated
-        if self.check_update:
-            self._historical_prices_pivot = self.historical_prices.pivot_table(
-                index="Timestamp", columns="Symbol", values="Price"
-            )
-        return self._historical_prices_pivot
+        return self.historical_prices.pivot_table(
+            index="Timestamp", columns="Symbol", values="Price"
+        )
 
     @property
+    @check_property_update
     def ledger_prices(self) -> pd.DataFrame:
         """
         Property to get the historical currency prices as a DataFrame with readable timestamps.
 
         """
-        # We only calculate the ledger_prices if the ledger has been updated
-        if self.check_update:
-            prices_df = self.historical_prices_pivot
-            prices_df.reset_index(inplace=True)
-            prices_df["Timestamp"] = pd.to_datetime(prices_df["Timestamp"], unit="ms")
-            prices_df.drop(columns=self.symbol, inplace=True)
-            self._ledger_prices = prices_df.set_index("Timestamp")
-        return self._ledger_prices
+        prices_df = self.historical_prices_pivot
+        prices_df.reset_index(inplace=True)
+        prices_df["Timestamp"] = pd.to_datetime(prices_df["Timestamp"], unit="ms")
+        prices_df.drop(columns=self.symbol, inplace=True)
+        ledger_prices = prices_df.set_index("Timestamp")
+        return ledger_prices
     
     @property
+    @check_property_update
     def get_last_prices(self) -> dict[str, float]:
         """
         Method to get the last price of an asset in the portfolio.
@@ -793,6 +804,7 @@ class Portfolio(Asset):
         return {symbol: self.assets[symbol].price for symbol in self.assets_list}
 
     @property
+    @check_property_update
     def historical_transactions(self) -> pd.DataFrame:
         """
         Property to get the historical transactions as a DataFrame.
@@ -801,30 +813,25 @@ class Portfolio(Asset):
         However, these are not filtered in the Ledger because they are needed for the equity calculation.
 
         """
-        # We only calculate the historical_transactions if the ledger has been updated
-        if self.check_update:
-            transactions_df = self.Ledger.transactions_df
-            transactions_df.drop(["Commission"], axis=1, inplace=True)
-            self._historical_transactions = transactions_df[transactions_df.Symbol != self.symbol]
-        return self._historical_transactions
+        transactions_df = self.Ledger.transactions_df.copy()
+        transactions_df.drop(["Commission"], axis=1, inplace=True)
+        return transactions_df[transactions_df.Symbol != self.symbol]
 
     @property
+    @check_property_update
     def ledger_transactions(self) -> pd.DataFrame:
         """
         Property to get the historical transactions as a DataFrame with readable timestamps.
 
         """
-        # We only calculate the ledger_transactions if the ledger has been updated
-        if self.check_update:
-            transactions_df=self.historical_transactions
-            transactions_df["Timestamp"] = pd.to_datetime(
-                transactions_df["Timestamp"], unit="ms"
-            )
-            transactions_df.loc[transactions_df['Action']=='SELL', 'Traded'] = -transactions_df['Traded']
-            transactions_pivot = transactions_df.pivot_table(index='Timestamp', columns='Symbol', values='Traded', aggfunc='sum')
-            transactions_pivot.fillna(0, inplace=True)
-            self._ledger_transactions = transactions_pivot
-        return self._ledger_transactions
+        transactions_df=self.historical_transactions
+        transactions_df["Timestamp"] = pd.to_datetime(
+            transactions_df["Timestamp"], unit="ms"
+        )
+        transactions_df.loc[transactions_df['Action']=='SELL', 'Traded'] = -transactions_df['Traded']
+        transactions_pivot = transactions_df.pivot_table(index='Timestamp', columns='Symbol', values='Traded', aggfunc='sum')
+        transactions_pivot.fillna(0, inplace=True)
+        return transactions_pivot
 
     # def calculate_historical_equity(self) -> None:
     #     """
@@ -853,46 +860,41 @@ class Portfolio(Asset):
     #     self._ledger_equity = equity_df.set_index("Timestamp")
 
     @property
+    @check_property_update
     def ledger_equity(self) -> pd.DataFrame:
         """
         Property to get the historical equity of the portfolio as a DataFrame with readable timestamps.
 
         """
-        # We only calculate the ledger_equity if the ledger has been updated
-        if self.check_update:
-            self.Ledger.equity_df
-            equity_df = self.Ledger.equity_df
-            equity_df.reset_index(inplace=True)
-            equity_df["Timestamp"] = pd.to_datetime(equity_df["Timestamp"], unit="ms")
-            self._ledger_equity = equity_df.set_index("Timestamp")
-        return self._ledger_equity
+        self.Ledger.equity_df
+        equity_df = self.Ledger.equity_df
+        equity_df.reset_index(inplace=True)
+        equity_df["Timestamp"] = pd.to_datetime(equity_df["Timestamp"], unit="ms")
+        return equity_df.set_index("Timestamp")
     
     @property
+    @check_property_update
     def ledger_equity_share(self) -> pd.DataFrame:
         """
         Property to get the historical equity of the portfolio as a DataFrame with the share of each asset.
 
         """
-        # We only calculate the ledger_equity_share if the ledger has been updated
-        if self.check_update:
-            equity_df = self.ledger_equity
-            equity_df= equity_df.div(equity_df['Total'], axis=0)
-            equity_df.drop(columns=["Total"], inplace=True)
-            self._ledger_equity_share = equity_df
-        return self._ledger_equity_share
+        equity_df = self.ledger_equity
+        equity_df= equity_df.div(equity_df['Total'], axis=0)
+        equity_df.drop(columns=["Total"], inplace=True)
+        return equity_df
 
     @property
+    @check_property_update
     def gains(self) -> float:
         """
         Property to get the gains of the portfolio.
 
         """
-        # We only calculate the gains if the ledger has been updated
-        if self.check_update:
-            self._gains = self.equity_value + self.disbursed_capital - self.invested_capital
-        return self._gains
+        return self.equity_value + self.disbursed_capital - self.invested_capital
 
     @property
+    @check_property_update
     def commission_gains_ratio_str(self) -> str:
         """
         Property to get the ratio of the total commissions to the gains of the portfolio.
@@ -906,6 +908,7 @@ class Portfolio(Asset):
             return "N/A"
 
     @property
+    @check_property_update
     def roi(self) -> float:
         """
         Property to get the Return on Investment (ROI) of the portfolio.
@@ -918,52 +921,48 @@ class Portfolio(Asset):
             return 0.0
     
     @property
+    @check_property_update
     def performance_assets_raw_info(self) -> pd.DataFrame:
         """
         Property to get the information to calculate the performance and the gains for each asset in the portfolio.
 
         """
-        # We only calculate the performance_assets_raw_info if the ledger has been updated
-        if self.check_update:
-            # We get the quote quote of the assets traded (bought and sold) segregated by the symbol
-            traded_assets_value = self.Ledger.traded_assets_values
-            traded_assets_list = list(traded_assets_value.index)
-            # We get the remaining values of the assets in the portfolio
-            assets_values = list()
-            for symbol in traded_assets_list:
-                assets_values.append(self.assets[symbol].value)
-            assets_values_df = pd.DataFrame({'asset':traded_assets_list, 'value':assets_values})
-            assets_values_df.set_index('asset', inplace=True)
-            # We merge the traded assets and the remaining assets
-            performance_assets_raw_info = pd.merge(traded_assets_value, assets_values_df, left_index=True, right_index=True, how='outer')
-            # We need to count the commissions payed for each transaction
-            performance_assets_raw_info['commissions'] = (performance_assets_raw_info['BUY'] + performance_assets_raw_info['SELL']) * self.commission_trade
-            self._performance_assets_raw_info = performance_assets_raw_info
-        return self._performance_assets_raw_info
+        # We get the quote quote of the assets traded (bought and sold) segregated by the symbol
+        traded_assets_value = self.Ledger.traded_assets_values
+        traded_assets_list = list(traded_assets_value.index)
+        # We get the remaining values of the assets in the portfolio
+        assets_values = list()
+        for symbol in traded_assets_list:
+            assets_values.append(self.assets[symbol].value)
+        assets_values_df = pd.DataFrame({'asset':traded_assets_list, 'value':assets_values})
+        assets_values_df.set_index('asset', inplace=True)
+        # We merge the traded assets and the remaining assets
+        performance_assets_raw_info = pd.merge(traded_assets_value, assets_values_df, left_index=True, right_index=True, how='outer')
+        # We need to count the commissions payed for each transaction
+        performance_assets_raw_info['commissions'] = (performance_assets_raw_info['BUY'] + performance_assets_raw_info['SELL']) * self.commission_trade
+        return performance_assets_raw_info
     
     @property
+    @check_property_update
     def performance_assets(self) -> pd.Series:
         """
         Property to get the performance of the assets in the portfolio.
 
         """
-        # We only calculate the performance_assets if the ledger has been updated
-        if self.check_update:
-            assets_raw_info = self.performance_assets_raw_info
-            self._performance_assets = ((assets_raw_info['value'] + assets_raw_info['SELL'] - assets_raw_info['commissions']) / assets_raw_info['BUY'])-1
-        return self._performance_assets
+        assets_raw_info = self.performance_assets_raw_info
+        performance_assets = ((assets_raw_info['value'] + assets_raw_info['SELL'] - assets_raw_info['commissions']) / assets_raw_info['BUY'])-1
+        return performance_assets
     
     @property
+    @check_property_update
     def gains_assets(self) -> pd.Series:
         """
         Property to get the gains of the assets in the portfolio.
 
         """
-        # We only calculate the gains_assets if the ledger has been updated
-        if self.check_update:
-            assets_raw_info = self.performance_assets_raw_info
-            self._gains_assets = assets_raw_info['value'] + assets_raw_info['SELL'] - assets_raw_info['commissions'] - assets_raw_info['BUY']
-        return self._gains_assets
+        assets_raw_info = self.performance_assets_raw_info
+        gains_assets = assets_raw_info['value'] + assets_raw_info['SELL'] - assets_raw_info['commissions'] - assets_raw_info['BUY']
+        return gains_assets
 
     # def calculate_historical_theoretical_hold_equity(self) -> None:
     #     """
@@ -986,28 +985,27 @@ class Portfolio(Asset):
     #     self._historical_theoretical_hold_equity = historical_assets_quote.sum(axis=1)
     
     @property
+    @check_property_update
     def historical_theoretical_hold_equity(self) -> pd.Series:
         """
         Property to provide the theoretical gains of holding the assets in the portfolio.
 
         """
-        # We only calculate the historical_theoretical_hold_equity if the ledger has been updated
-        if self.check_update:
-            prices = self.ledger_prices
-            # Need to recalculate the equity to have the correct values
-            self.calculate_ledger_equity()
-            equity = self.ledger_equity.copy()
-            # No price for portfolio currency, set it to 1
-            prices[self.symbol] = 1
-            equity.drop(columns=["Total"], inplace=True, errors="ignore")
-            initial_price = prices.iloc[0]
-            initial_assets_quote = equity.iloc[0]
-            initial_assets_base = initial_assets_quote / initial_price
-            # As it is an equity calculation, we don't need to consider the commissions
-            # They are already debited after the first transaction
-            historical_assets_quote = initial_assets_base * prices
-            self._historical_theoretical_hold_equity = historical_assets_quote.sum(axis=1)
-        return self._historical_theoretical_hold_equity
+        prices = self.ledger_prices
+        # Need to recalculate the equity to have the correct values
+        # self.calculate_ledger_equity()
+        equity = self.ledger_equity.copy()
+        # No price for portfolio currency, set it to 1
+        prices[self.symbol] = 1
+        equity.drop(columns=["Total"], inplace=True, errors="ignore")
+        initial_price = prices.iloc[0]
+        initial_assets_quote = equity.iloc[0]
+        initial_assets_base = initial_assets_quote / initial_price
+        # As it is an equity calculation, we don't need to consider the commissions
+        # They are already debited after the first transaction
+        historical_assets_quote = initial_assets_base * prices
+        historical_theoretical_hold_equity = historical_assets_quote.sum(axis=1)
+        return historical_theoretical_hold_equity
 
     # def calculate_hold_gains_assets(self) -> pd.Series:
     #     """
@@ -1040,40 +1038,39 @@ class Portfolio(Asset):
     #     self._hold_gains_assets = hold_gains
     
     @property
+    @check_property_update
     def hold_gains_assets(self) -> pd.Series:
         """
         Property to provide the theoretical gains of holding the assets in the portfolio.
 
         """
-        # We only calculate the hold_gains_assets if the ledger has been updated
-        if self.check_update:
-            prices = self.ledger_prices
-            # Need to recalculate the equity to have the correct values
-            # self.calculate_ledger_equity()
-            equity = self.ledger_equity.copy()
-            if (len(prices) > 0) & (len(equity) > 0):
-                # No price for portfolio currency, set it to 1
-                prices[self.symbol] = 1
-                equity.drop(columns=["Total"], inplace=True, errors="ignore")
-                initial_assets_quote = equity.iloc[0]
-                initial_prices = prices.iloc[0]
-                final_prices = prices.iloc[-1]
-                initial_assets_base = (initial_assets_quote / initial_prices)
-                # Initial commissions can't be extracted from total_commissions
-                # When trading, total commissions increases
-                commissions = self.invested_capital - initial_assets_quote.sum()
-                # Commissions are only applied to the portfolio currency at the initial point
-                initial_assets_quote[self.symbol] = initial_assets_quote[self.symbol] + commissions
-                # Final commissions are not part of the final assets
-                final_assets_quote = initial_assets_base * final_prices
-                hold_gains = final_assets_quote - initial_assets_quote
-            else:
-                assets_list = [self.symbol, *self.assets_list]
-                hold_gains = pd.Series([0.0] * len(assets_list), index=assets_list)
-            self._hold_gains_assets = hold_gains
-        return self._hold_gains_assets
+        prices = self.ledger_prices
+        # Need to recalculate the equity to have the correct values
+        # self.calculate_ledger_equity()
+        equity = self.ledger_equity.copy()
+        if (len(prices) > 0) & (len(equity) > 0):
+            # No price for portfolio currency, set it to 1
+            prices[self.symbol] = 1
+            equity.drop(columns=["Total"], inplace=True, errors="ignore")
+            initial_assets_quote = equity.iloc[0]
+            initial_prices = prices.iloc[0]
+            final_prices = prices.iloc[-1]
+            initial_assets_base = (initial_assets_quote / initial_prices)
+            # Initial commissions can't be extracted from total_commissions
+            # When trading, total commissions increases
+            commissions = self.invested_capital - initial_assets_quote.sum()
+            # Commissions are only applied to the portfolio currency at the initial point
+            initial_assets_quote[self.symbol] = initial_assets_quote[self.symbol] + commissions
+            # Final commissions are not part of the final assets
+            final_assets_quote = initial_assets_base * final_prices
+            hold_gains = final_assets_quote - initial_assets_quote
+        else:
+            assets_list = [self.symbol, *self.assets_list]
+            hold_gains = pd.Series([0.0] * len(assets_list), index=assets_list)
+        return hold_gains
     
     @property
+    @check_property_update
     def hold_gains(self) -> float:
         """
         Property to provide the sum of the theoretical gains of holding the assets in the portfolio.
@@ -1082,6 +1079,7 @@ class Portfolio(Asset):
         return self.hold_gains_assets.sum()
 
     @property
+    @check_property_update
     def hold_roi(self) -> float:
         """
         Property to provide the Return on Investment (ROI) of theoretical holding the assets in the portfolio.
@@ -1090,6 +1088,7 @@ class Portfolio(Asset):
         return (self.hold_gains / self.invested_capital).round(5)
     
     @property
+    @check_property_update
     def roi_vs_hold_roi(self) -> float:
         """
         Property to provide the difference between the ROI and the theoretical holding ROI.
@@ -1281,7 +1280,7 @@ class Portfolio(Asset):
             # Create an Axes object for the figure
             ax = fig.add_subplot(111)
             # Need to recalculate the equity to have the correct values
-            self.calculate_ledger_equity()
+            # self.calculate_ledger_equity()
 
         label_colors = self.label_colors
         equity_share_df = self.ledger_equity_share
@@ -1331,7 +1330,7 @@ class Portfolio(Asset):
             # Create an Axes object for the figure
             ax = fig.add_subplot(111)   
             # Need to recalculate the equity to have the correct values
-            self.calculate_ledger_equity()
+            # self.calculate_ledger_equity()
 
         label_colors = self.label_colors
 
@@ -1426,7 +1425,7 @@ class Portfolio(Asset):
         )
 
         # Need to recalculate the equity to have the correct values
-        self.calculate_ledger_equity()
+        # self.calculate_ledger_equity()
 
         self.plot_benchmark((fig, ax[0]))
         self.plot_assets_share((fig, ax[1]))

@@ -13,6 +13,36 @@ def now_ms() -> int:
     """
     return int(time() * 1000)
 
+def check_property_update(func: Callable) -> Callable:
+    """
+    Decorator to check if properties have been updated.
+    
+    """
+    def wrapper(self, *args, **kwargs):
+        # Use func.__name__ to get the current method's name
+        self_name = func.__name__
+        # Check if the property is a key in the dictionary
+        # If not, it has never been calculated
+        if self_name not in self._properties_evolution_id:
+            recalculate = True
+        # If the property has been calculated but the evolution_id has changed
+        # We need to recalculate the property
+        elif self._properties_evolution_id[self_name] != self.evolution_id:
+            recalculate = True
+        # Otherwise, the property is up-to-date
+        else:
+            recalculate = False
+        # If the property needs to be recalculated
+        # Call the original method
+        if recalculate:
+            # Update the properties cache
+            self._properties_cached[self_name] = func(self, *args, **kwargs)
+            # Update the properties evolution_id
+            self._properties_evolution_id[self_name] = self.evolution_id
+        # Return the property cached
+        return self._properties_cached[self_name]
+    return wrapper
+
 
 def check_positive(func: Callable) -> Callable:
     """
