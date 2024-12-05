@@ -449,10 +449,8 @@ class Portfolio(Asset):
         transaction_id = self.new_transaction_id()
         balance_pre = self.balance
         commission = amount * self.commission_transfer
-        net_amount = amount - commission
-        self.commissions_sum += float(commission)
-        self.balance += float(net_amount)
         # Record the transaction in the ledger for the portfolio currency
+        # The transaction is not acknowledged yet
         self.Ledger.buy(
             id=transaction_id,
             timestamp=timestamp,
@@ -463,8 +461,14 @@ class Portfolio(Asset):
             commission=commission,
             balance_pre=balance_pre,
         )
+        net_amount = amount - commission
+        # Here starts the real transaction
+        self.commissions_sum += float(commission)
+        self.balance += float(net_amount)
         # Record the capital movement in the ledger
         self.Ledger.invest_capital(timestamp=timestamp, amount=amount)
+        # Acknowledge the transaction
+        self.Ledger.confirm_transaction(transaction_id)
         self.print_portfolio()
 
     @check_positive
@@ -481,6 +485,18 @@ class Portfolio(Asset):
         if timestamp is None:
             timestamp = now_ms()
         commission = amount * self.commission_transfer
+        # Record the transaction in the ledger for the portfolio currency
+        # The transaction is not acknowledged yet
+        self.Ledger.sell(
+            id=transaction_id,
+            timestamp=timestamp,
+            trade=False,
+            symbol=self.symbol,
+            amount=amount,
+            price=1,
+            commission=commission,
+            balance_pre=balance_pre,
+        )
         gross_amount = amount + commission
         try:
             self.check_amount(gross_amount)
@@ -492,21 +508,13 @@ class Portfolio(Asset):
             # If the amount is still higher, raise the error
             else:
                 raise e
+        # Here starts the real transaction
         self.commissions_sum += float(commission)
         self.balance -= float(gross_amount)
-        # Record the transaction in the ledger for the portfolio currency
-        self.Ledger.sell(
-            id=transaction_id,
-            timestamp=timestamp,
-            trade=False,
-            symbol=self.symbol,
-            amount=amount,
-            price=1,
-            commission=commission,
-            balance_pre=balance_pre,
-        )
         # Record the capital movement in the ledger
         self.Ledger.disburse_capital(timestamp=timestamp, amount=amount)
+        # Acknowledge the transaction
+        self.Ledger.confirm_transaction(transaction_id)
         self.print_portfolio()
 
     @check_positive
@@ -526,11 +534,8 @@ class Portfolio(Asset):
         amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
         log_id = self.log_buy_transaction(timestamp, symbol, amount_base, amount_quote, price, commission_quote, msg=msg)
-        gross_amount_quote = amount_quote + commission_quote
-        self.check_amount(gross_amount_quote)
-        self.balance -= float(gross_amount_quote)
-        self.assets[symbol]._deposit(amount_base)
         # Record the transaction in the ledger for the asset
+        # The transaction is not acknowledged yet
         self.Ledger.buy(
             id=transaction_id,
             timestamp=timestamp,
@@ -542,6 +547,7 @@ class Portfolio(Asset):
             balance_pre=balance_asset_pre
         )
         # Record the transaction in the ledger for the portfolio currency
+        # The transaction is not acknowledged yet
         self.Ledger.sell(
             id=transaction_id,
             timestamp=timestamp,
@@ -552,6 +558,15 @@ class Portfolio(Asset):
             commission=commission_quote,
             balance_pre=balance_liquid_pre
         )
+        # Add message to the transaction
+        self.Ledger.add_message_to_transaction(transaction_id, msg)
+        gross_amount_quote = amount_quote + commission_quote
+        self.check_amount(gross_amount_quote)
+        # Here starts the real transaction
+        self.balance -= float(gross_amount_quote)
+        self.assets[symbol]._deposit(amount_base)
+        # Acknowledge the transaction
+        self.Ledger.confirm_transaction(transaction_id)
         self.log_ack(log_id)
         self.print_portfolio()
 
@@ -578,11 +593,8 @@ class Portfolio(Asset):
         amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
         log_id = self.log_sell_transaction(timestamp, symbol, amount_base, amount_quote, price, commission_quote, msg=msg)
-        self.check_amount(commission_quote)
-        net_amount_quote = amount_quote - commission_quote
-        self.assets[symbol]._withdraw(amount_base)
-        self.balance += float(net_amount_quote)
         # Record the transaction in the ledger for the asset
+        # The transaction is not acknowledged yet
         self.Ledger.sell(
             id=transaction_id,
             timestamp=timestamp,
@@ -594,6 +606,7 @@ class Portfolio(Asset):
             balance_pre=balance_asset_pre
         )
         # Record the transaction in the ledger for the portfolio currency
+        # The transaction is not acknowledged yet
         self.Ledger.buy(
             id=transaction_id,
             timestamp=timestamp,
@@ -604,6 +617,15 @@ class Portfolio(Asset):
             commission=commission_quote,
             balance_pre=balance_liquid_pre
         )
+        # Add message to the transaction
+        self.Ledger.add_message_to_transaction(transaction_id, msg)
+        self.check_amount(commission_quote)
+        net_amount_quote = amount_quote - commission_quote
+        # Here starts the real transaction
+        self.assets[symbol]._withdraw(amount_base)
+        self.balance += float(net_amount_quote)
+        # Acknowledge the transaction
+        self.Ledger.confirm_transaction(transaction_id)
         self.log_ack(log_id)
         self.print_portfolio()
     

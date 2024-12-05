@@ -4,7 +4,7 @@ from typing import Optional
 import pandas as pd
 import numpy as np
 
-from .record_objects import Capital, CurrencyPrice, Transaction
+from .record_objects import Capital, CurrencyPrice, Transaction, MetaTransaction
 from .support import check_property_update, display_price
 
 
@@ -19,6 +19,7 @@ class Ledger:
     capital: list[Capital] = field(default_factory=list)
     prices: list[CurrencyPrice] = field(default_factory=list)
     transactions: list[Transaction] = field(default_factory=list)
+    meta_transactions: list[MetaTransaction] = field(default_factory=list)
     active_assets: list[str] = field(default_factory=list)
     timestamp_low_resolution: int = 500 # samples
 
@@ -72,6 +73,26 @@ class Ledger:
         """
         currency_price = CurrencyPrice(timestamp=timestamp, symbol=symbol, price=float(price))
         self.prices.append(currency_price)
+    
+    def record_meta_transaction(
+        self,
+        id: int,
+        timestamp: int,
+        trade: bool,
+    ) -> None:
+        """
+        Method to record a meta transaction in the ledger.
+
+        """
+        meta_transaction = MetaTransaction(
+            id=id,
+            timestamp=timestamp,
+            trade=trade,
+            ack=False,
+        )
+        # We only record the meta transaction if the id is not already in the list
+        if id not in [mt.id for mt in self.meta_transactions]:
+            self.meta_transactions.append(meta_transaction)
 
     def record_transaction(
         self,
@@ -92,8 +113,6 @@ class Ledger:
         traded = amount * price
         transaction = Transaction(
             id=id,
-            timestamp=timestamp,
-            trade=trade,
             action=action,
             symbol=symbol,
             amount=float(amount),
@@ -103,8 +122,29 @@ class Ledger:
             balance_pre=float(balance_pre),
         )
         self.transactions.append(transaction)
+        # We record the meta transaction
+        self.record_meta_transaction(id, timestamp, trade)
         # We keep track of the assets that have been traded
         self.record_active_asset(symbol)
+    
+    def confirm_transaction(self, id: int) -> None:
+        """
+        Method to confirm a transaction in the ledger.
+
+        """
+        transaction = next((t for t in self.meta_transactions if t.id == id), None)
+        if transaction is not None:
+            transaction.ack = True
+    
+    def add_message_to_transaction(self, id: int, message: str) -> None:
+        """
+        Method to add a message to a transaction in the ledger.
+
+        """
+        if message:
+            transaction = next((t for t in self.meta_transactions if t.id == id), None)
+            if transaction is not None:
+                transaction.messages.append(message)
 
     def buy(
         self,
@@ -300,6 +340,35 @@ class Ledger:
 
     @property
     @check_property_update
+    def meta_transactions_df(self) -> pd.DataFrame:
+        """
+        Property to get the meta transactions' list as a DataFrame.
+
+        """
+        data = []
+        for meta_transaction in self.meta_transactions:
+            data.append(
+                (
+                    meta_transaction.id,
+                    meta_transaction.timestamp,
+                    meta_transaction.trade,
+                    meta_transaction.ack,
+                    meta_transaction.messages,
+                )
+            )
+        columns = (
+            "Id",
+            "Timestamp",
+            "Trade",
+            "Ack",
+            "Messages",
+        )
+        df = pd.DataFrame(data, columns=columns)
+        df['Number_Messages'] = df['Messages'].apply(len)
+        return df
+
+    @property
+    @check_property_update
     def transactions_df(self) -> pd.DataFrame:
         """
         Property to get the transactions' list as a DataFrame.
@@ -310,8 +379,6 @@ class Ledger:
             data.append(
                 (
                     transaction.id,
-                    transaction.timestamp,
-                    transaction.trade,
                     transaction.action,
                     transaction.symbol,
                     transaction.amount,
@@ -323,8 +390,6 @@ class Ledger:
             )
         columns = (
             "Id",
-            "Timestamp",
-            "Trade",
             "Action",
             "Symbol",
             "Amount",
@@ -334,6 +399,7 @@ class Ledger:
             "Balance_Pre",
         )
         df = pd.DataFrame(data, columns=columns)
+        df = df.merge(self.meta_transactions_df, on="Id")
         return df
 
     @property
@@ -479,18 +545,28 @@ class Ledger:
         balance_asset_post = log_entry["Balance_Asset_Post"]
         balance_liquid_pre = log_entry["Balance_Liquid_Pre"]
         balance_liquid_post = log_entry["Balance_Liquid_Post"]
+        ack = ["(NAK)", "(ACK)"][log_entry["Ack"]]
+        messages = log_entry["Messages"]
         display_msg = f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {symbol.upper()} - {trade_type.upper()} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
         transaction_msg = (
             f"{trade_type.capitalize()} {display_price(amount_base, symbol)} for {display_price(amount_quote, self.portfolio_symbol)} "
             f"at {display_price(price, self.portfolio_symbol)}/{symbol} "
             f"(Commission: {display_price(log_entry['Commission'], self.portfolio_symbol)})"
         )   
-        display_msg += f"\n[{id}] - Timestamp: {timestamp}"
+        display_msg += f"\n[{id}] {ack}- Timestamp: {timestamp}"
         display_msg += f"\n-> BALANCE PRE-TRADE: ASSET: {display_price(balance_asset_pre, symbol)} ({display_price(balance_asset_pre * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_pre, self.portfolio_symbol)}"
         display_msg += f"\n-> {transaction_msg}"
         display_msg += f"\n-> BALANCE POST-TRADE: ASSET: {display_price(balance_asset_post, symbol)} ({display_price(balance_asset_post * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_post, self.portfolio_symbol)}"
-        # for msg in log_entry["msg"]:
-        #     display_msg += f"\n-> Comment: {msg}"
+        for msg in messages:
+            display_msg += f"\n-> Message: {msg}"
         display_msg += f"\n"
         print(display_msg)
+    
+    def print_logs(self) -> None:
+        """
+        Method to print all the log entries.
+            
+        """
+        for id in self.log_df.index:
+            self.print_log(id)
         

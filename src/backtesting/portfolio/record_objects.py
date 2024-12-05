@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -32,8 +32,6 @@ class Transaction:
 
     """
     id: int
-    timestamp: int
-    trade: bool
     action: str
     symbol: str
     amount: float
@@ -41,3 +39,15 @@ class Transaction:
     traded: float
     commission: float
     balance_pre: float
+
+@dataclass
+class MetaTransaction:
+    """
+    Dataclass to store the meta transactions in the ledger.
+
+    """
+    id: int
+    timestamp: int
+    trade: bool
+    ack: bool
+    messages: list[str] = field(default_factory=list)
