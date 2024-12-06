@@ -38,7 +38,7 @@ class Portfolio(Asset):
     commission_transfer: float = 0.0
     frequency_displayed: str = "600s"
     transaction_id: int = 0
-    displayed_assets: int = 5
+    displayed_assets: int = 9
 
     # Portfolio internal methods ------------------------------------------------
 
@@ -543,7 +543,7 @@ class Portfolio(Asset):
         Property to get the list of all symbols in the portfolio.
 
         """
-        return [self.symbol, *self.assets_list]
+        return [self.symbol, *self.assets_to_display_list]
 
     @property
     @check_property_update
@@ -803,6 +803,22 @@ class Portfolio(Asset):
         equity_df= equity_df.div(equity_df['Total'], axis=0)
         equity_df.drop(columns=["Total"], inplace=True)
         return equity_df
+    
+    @property
+    @check_property_update
+    def ledger_equity_share_displayable(self) -> pd.DataFrame:
+        """
+        Property to get the historical equity of the portfolio as a DataFrame with the share for relevant assets.
+
+        """
+        equity_share = self.ledger_equity_share
+        cols = equity_share.columns
+        cols_displayable_assets = [c for c in cols if c in self.all_symbols]
+        cols_aggregated_assets = [c for c in cols if c not in self.all_symbols]
+        displayable_assets = equity_share[cols_displayable_assets].copy()
+        aggreted_assets = equity_share[cols_aggregated_assets].sum(axis=1)
+        displayable_assets[self.other_assets] = aggreted_assets.copy()
+        return displayable_assets
 
     @property
     @check_property_update
@@ -1071,7 +1087,6 @@ class Portfolio(Asset):
         # Create a figure with multiple subplots
         symbol = self.symbol
         assets_list = self.assets_traded_list
-            # if column in self.assets_to_display_list:
         num_plots = len(assets_list) + 1
         h_size = num_plots * 5
         fig, ax = plt.subplots(
@@ -1212,11 +1227,11 @@ class Portfolio(Asset):
             # self.calculate_ledger_equity()
 
         label_colors = self.label_colors.copy()
-        equity_share_df = self.ledger_equity_share
+        equity_share_df = self.ledger_equity_share_displayable.copy()
         resampled_equity_share_df = self.resample_data(equity_share_df, type='mean')
         # Reverse the columns to do the cumsum in the correct order
         # Reorder the columns to have the portfolio currency at the end
-        columns = self.all_symbols
+        columns = list(equity_share_df.columns)
         columns.reverse()
         resampled_equity_share_df = resampled_equity_share_df[columns]
         resampled_equity_share_df_cumsum = resampled_equity_share_df.cumsum(axis=1)
@@ -1364,6 +1379,25 @@ class Portfolio(Asset):
         cmap = plt.get_cmap("tab20")
         colors = {label: cmap(i) for i, label in enumerate(labels)}
         return colors
+    
+    # @property
+    # @check_property_update
+    # def label_colors(self) -> None:
+    #     def get_colors(cmap_name, num_colors):
+    #         cmap = plt.get_cmap(cmap_name)
+    #         return [cmap(i / num_colors) for i in range(num_colors)]
+
+    #     # Example usage
+    #     hold = 'hold'
+    #     labels = [self.symbol, hold, *self.assets_to_display_list]
+    #     num_colors = len(labels)
+    #     cmap = get_colors("Set2", num_colors)
+    #     print(cmap)
+    #     # cmap = plt.get_cmap("tab20")
+    #     print(labels)
+    #     colors = {label: cmap[i] for i, label in enumerate(labels)}
+    #     print(colors)
+    #     return colors
 
     def plot_summary(self) -> None:
         """
