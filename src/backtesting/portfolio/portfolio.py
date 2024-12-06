@@ -36,8 +36,9 @@ class Portfolio(Asset):
     name: str = ""
     commission_trade: float = 0.0
     commission_transfer: float = 0.0
-    frequency_displayed: str = "1h"
+    frequency_displayed: str = "600s"
     transaction_id: int = 0
+    displayed_assets: int = 5
 
     # Portfolio internal methods ------------------------------------------------
 
@@ -217,7 +218,6 @@ class Portfolio(Asset):
             portfolio_symbol=self.symbol,
             commission=self.commission_trade,
         )
-        self.create_consistent_colors_labels()
 
     def add_Currency_list(self, symbols_list: list[str]) -> None:
         """
@@ -480,6 +480,30 @@ class Portfolio(Asset):
                 self.assets[symbol].balance = 0
 
     # Portfolio reporting methods ------------------------------------------------
+    
+    @property
+    @check_property_update
+    def timerange(self) -> int:
+        """
+        Property to get the timespan of the portfolio.
+
+        """
+        timestamps = self.Ledger.prices_df.Timestamp
+        start = timestamps.min()
+        end = timestamps.max()
+        return (start, end)
+    
+    @property
+    def frequency_resampling(self) -> str:
+        """
+        Property to get the frequency for resampling the data.
+
+        """
+        divisions = 50
+        start, end = self.timerange
+        timespan = end - start
+        frequency = int(timespan / divisions)
+        return f"{frequency}s"
 
     @property
     @check_property_update
@@ -639,7 +663,7 @@ class Portfolio(Asset):
 
         """
         capital_df = self.historical_capital
-        capital_df["Timestamp"] = pd.to_datetime(capital_df["Timestamp"], unit="ms")
+        capital_df["Timestamp"] = pd.to_datetime(capital_df["Timestamp"], unit="s")
         ledger_capital = capital_df.set_index("Timestamp")
         return ledger_capital
 
@@ -689,7 +713,7 @@ class Portfolio(Asset):
         """
         prices_df = self.historical_prices_pivot
         prices_df.reset_index(inplace=True)
-        prices_df["Timestamp"] = pd.to_datetime(prices_df["Timestamp"], unit="ms")
+        prices_df["Timestamp"] = pd.to_datetime(prices_df["Timestamp"], unit="s")
         prices_df.drop(columns=self.symbol, inplace=True)
         ledger_prices = prices_df.set_index("Timestamp")
         return ledger_prices
@@ -721,38 +745,52 @@ class Portfolio(Asset):
     @check_property_update
     def ledger_transactions(self) -> pd.DataFrame:
         """
-        Property to get the historical transactions as a DataFrame with readable timestamps.
+        Property to get the historical transactions as a DataFrame with timestamps.
 
         """
-        transactions_df=self.historical_transactions
-        transactions_df["Timestamp"] = pd.to_datetime(
-            transactions_df["Timestamp"], unit="ms"
-        )
+        transactions_df=self.historical_transactions.copy()
         transactions_df.loc[transactions_df['Action']=='SELL', 'Traded'] = -transactions_df['Traded']
         transactions_pivot = transactions_df.pivot_table(index='Timestamp', columns='Symbol', values='Traded', aggfunc='sum')
         transactions_pivot.fillna(0, inplace=True)
         return transactions_pivot
 
     @property
-    def historical_equity(self) -> pd.DataFrame:
+    @check_property_update
+    def ledger_transactions_datetime(self) -> pd.DataFrame:
         """
-        Property to get the historical equity of the portfolio as a DataFrame.
+        Property to get the historical transactions as a DataFrame with readable timestamps.
 
         """
-        return self.Ledger.equity_df
+        transactions_df = self.ledger_transactions.copy()
+        transactions_df.reset_index(inplace=True)
+        transactions_df["DateTime"] = pd.to_datetime(transactions_df["Timestamp"], unit="s")
+        transactions_df.drop(columns=["Timestamp"], inplace=True)
+        return transactions_df.set_index("DateTime")
+
 
     @property
     @check_property_update
     def ledger_equity(self) -> pd.DataFrame:
         """
+        Property to get the historical equity of the portfolio as a DataFrame with timestamps.
+
+        """
+        equity_df = self.Ledger.equity_df.copy()
+        equity_df.reset_index(inplace=True)
+        return equity_df.set_index("Timestamp")
+    
+    @property
+    @check_property_update
+    def ledger_equity_datetime(self) -> pd.DataFrame:
+        """
         Property to get the historical equity of the portfolio as a DataFrame with readable timestamps.
 
         """
-        self.Ledger.equity_df
-        equity_df = self.Ledger.equity_df
+        equity_df = self.ledger_equity.copy()
         equity_df.reset_index(inplace=True)
-        equity_df["Timestamp"] = pd.to_datetime(equity_df["Timestamp"], unit="ms")
-        return equity_df.set_index("Timestamp")
+        equity_df["DateTime"] = pd.to_datetime(equity_df["Timestamp"], unit="s")
+        equity_df.drop(columns=["Timestamp"], inplace=True)
+        return equity_df.set_index("DateTime")
     
     @property
     @check_property_update
@@ -845,6 +883,22 @@ class Portfolio(Asset):
         assets_raw_info = self.performance_assets_raw_info
         gains_assets = assets_raw_info['value'] + assets_raw_info['SELL'] - assets_raw_info['commissions'] - assets_raw_info['BUY']
         return gains_assets
+    
+    def top_performers(self, n: int) -> pd.DataFrame:
+        """
+        Method to get the top n performers in the portfolio.
+        
+        """
+        assets = self.gains_assets
+        return assets.nlargest(n)
+    
+    def bottom_performers(self, n: int) -> pd.DataFrame:
+        """
+        Method to get the bottom n performers in the portfolio.
+        
+        """
+        assets = self.gains_assets
+        return assets.nsmallest(n)
     
     @property
     @check_property_update
@@ -955,16 +1009,18 @@ class Portfolio(Asset):
         This is useful to have a more readable plot and less computational cost.
 
         """
+        # COMMENTED BECAUSE I WANT TO TEST PLOTTING WITH THE ORIGINAL DATA
         if freq is None:
             freq = self.frequency_displayed
-        # df.index = pd.to_datetime(df.index, unit="ms")
-        df.index = pd.DatetimeIndex(pd.to_datetime(df.index, unit="ms"))
+        # df.index = pd.to_datetime(df.index, unit="s")
+        df.index = pd.DatetimeIndex(pd.to_datetime(df.index, unit="s"))
         if type == 'mean':
             return df.resample(freq).mean()
         elif type == 'last':
             return df.resample(freq).last()
         elif type == 'sum':
             return df.resample(freq).sum()
+        return df
 
     # Portfolio logging methods ------------------------------------------------
     
@@ -1075,7 +1131,7 @@ class Portfolio(Asset):
             # Create an Axes object for the figure
             ax = fig.add_subplot(111)
         
-        label_colors = self.label_colors
+        label_colors = self.label_colors.copy()
         ax.axhline(y=0, color='black', linewidth=1)
 
         # EQUITY
@@ -1153,7 +1209,7 @@ class Portfolio(Asset):
             # Need to recalculate the equity to have the correct values
             # self.calculate_ledger_equity()
 
-        label_colors = self.label_colors
+        label_colors = self.label_colors.copy()
         equity_share_df = self.ledger_equity_share
         resampled_equity_share_df = self.resample_data(equity_share_df, type='mean')
         # Reverse the columns to do the cumsum in the correct order
@@ -1203,15 +1259,15 @@ class Portfolio(Asset):
             # Need to recalculate the equity to have the correct values
             # self.calculate_ledger_equity()
 
-        label_colors = self.label_colors
+        label_colors = self.label_colors.copy()
 
         ax.axhline(y=0, color='black', linewidth=1)
 
-        color_hold = self.label_colors['hold']
-        color_symbol = self.label_colors[self.symbol]
+        color_hold = label_colors['hold']
+        color_symbol = label_colors[self.symbol]
 
         # Non liquid assets
-        equity = self.ledger_equity.copy()
+        equity = self.ledger_equity_datetime.copy()
         non_liquid = equity['Total'] - equity[self.symbol]
         non_liquid_df = pd.DataFrame(non_liquid, columns=['Total'])
         non_liquid_df = self.resample_data(non_liquid_df, type='last')
@@ -1220,7 +1276,7 @@ class Portfolio(Asset):
         ax.plot(datetime, assets_value, color=color_hold, alpha=1.0, linewidth=1)
 
         # Equity
-        historical_equity = self._historical_equity
+        historical_equity = self.ledger_equity_datetime.copy()
         resampled_historical_equity = self.resample_data(historical_equity, type='last')
         datetime = resampled_historical_equity.index
         total_equity = resampled_historical_equity["Total"]
@@ -1231,33 +1287,41 @@ class Portfolio(Asset):
         ax.fill_between(datetime, assets_value, total_equity, color=color_symbol, alpha=0.2, label='Liquid')
 
         # Need to recalculate the equity to have the correct values
-        transactions_df = self.ledger_transactions
+        transactions_df = self.ledger_transactions_datetime.copy()
         # Resample buys and sells to have a better visualization
         # It is needed to split buys and sells to have a better visualization
         # When resampling buys and sells they would cancel each other in the same sampling window
         resample_type = 'sum'
-        resample_freq = '6h'
         buys_df = transactions_df[transactions_df > 0].fillna(0)
-        resampled_buys_df = self.resample_data(buys_df, type=resample_type, freq=resample_freq)
+        resampled_buys_df = self.resample_data(buys_df, type=resample_type, freq=self.frequency_resampling)
         sells_df = transactions_df[transactions_df < 0].fillna(0)
-        resampled_sells_df = self.resample_data(sells_df, type=resample_type, freq=resample_freq)
+        resampled_sells_df = self.resample_data(sells_df, type=resample_type, freq=self.frequency_resampling)
         # Initialize a variable to keep track of the bottom position for buys
         bottoms_buy = np.zeros(len(resampled_buys_df))
         # Initialize a variable to keep track of the bottom position for sells
         bottoms_sell = np.zeros(len(resampled_sells_df))
         # Set the width of the bars
-        bars_width = 0.23
-        for column in self.assets_list:
-            color = label_colors[column]
-            # Plot the bar chart buys
-            ax.bar(resampled_buys_df.index, resampled_buys_df[column], label=column, bottom=bottoms_buy, width=bars_width, color=color, alpha=1.0, edgecolor='black')
-            # Plot the bar chart sells
-            ax.bar(resampled_sells_df.index, resampled_sells_df[column], bottom=bottoms_sell, width=bars_width, color=color, alpha=1.0, edgecolor='black')
-            
-            # Update bottoms for buys and sells separately if needed
-            bottoms_buy += resampled_buys_df[column]
-            bottoms_sell += resampled_sells_df[column]
-
+        bars_width = 0.02
+        # We only want to display the top and bottom performers
+        for column in self.assets_traded_list:
+            if column in self.assets_to_display_list:
+                color = label_colors[column]
+                # Plot the bar chart buys
+                ax.bar(resampled_buys_df.index, resampled_buys_df[column], label=column, bottom=bottoms_buy, width=bars_width, color=color, alpha=1.0, edgecolor='black')
+                # Plot the bar chart sells
+                ax.bar(resampled_sells_df.index, resampled_sells_df[column], bottom=bottoms_sell, width=bars_width, color=color, alpha=1.0, edgecolor='black')
+                # Update bottoms for buys and sells separately if needed
+                bottoms_buy += resampled_buys_df[column]
+                bottoms_sell += resampled_sells_df[column]
+        # For the other assets, we aggregate them
+        assets_to_aggregate = [asset for asset in self.assets_traded_list if asset not in self.assets_to_display_list]
+        resampled_buys_agg_df = resampled_buys_df[assets_to_aggregate].sum(axis=1)
+        resampled_sells_agg_df = resampled_sells_df[assets_to_aggregate].sum(axis=1)
+        color = label_colors[self.other_assets]
+        # Plot the bar chart buys
+        ax.bar(resampled_buys_agg_df.index, resampled_buys_agg_df, label=self.other_assets, bottom=bottoms_buy, width=bars_width, color=color, alpha=1.0, edgecolor='black')
+        # Plot the bar chart sells
+        ax.bar(resampled_sells_agg_df.index, resampled_sells_agg_df, bottom=bottoms_sell, width=bars_width, color=color, alpha=1.0, edgecolor='black')
         ax.set_title("Transactions Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel(f"Value / Amount ({self.symbol})")
@@ -1278,12 +1342,26 @@ class Portfolio(Asset):
             # Show the plot
             plt.show()
     
-    def create_consistent_colors_labels(self) -> None:
+    @property
+    def assets_to_display_list(self) -> None:
+        """
+        Method to create a consistent list of assets to display in the plots.
+
+        """
+        top_performers = self.top_performers(n=self.displayed_assets).index.tolist()
+        bottom_performers = self.bottom_performers(n=self.displayed_assets).index.tolist()
+        self.other_assets = 'Other Assets'
+        assets_to_display_list = top_performers + bottom_performers + [self.other_assets]
+        return assets_to_display_list
+    
+    @property
+    @check_property_update
+    def label_colors(self) -> None:
         hold = 'hold'
-        labels = [self.symbol, hold, *self.assets_list]
-        cmap = plt.get_cmap("Set2")
+        labels = [self.symbol, hold, *self.assets_to_display_list]
+        cmap = plt.get_cmap("tab20")
         colors = {label: cmap(i) for i, label in enumerate(labels)}
-        self.label_colors = colors
+        return colors
 
     def plot_summary(self) -> None:
         """
