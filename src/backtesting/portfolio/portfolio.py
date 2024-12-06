@@ -25,118 +25,6 @@ from .support import (
 
 VerboseType = Literal["silent", "action", "status", "verbose"]
 
-@dataclass
-class ActivityLog():
-    symbol_quote: str
-    
-    def __post_init__(self) -> None:
-        self.count = 0
-        self.logs = []
-    
-    @property
-    def last_log_id(self) -> int:
-        return self.count - 1
-    
-    def new_entry(self, type: str, timestamp: int) -> int:
-        id = self.count
-        log_entry = {
-            "id": id,
-            "type": type,
-            "timestamp": timestamp,
-            "msg": []
-        }
-        self.logs.append(log_entry)
-        self.count += 1
-        return id
-    
-    def add_msg(self, id: int, msg: str) -> None:
-        log_entry = self.logs[id]
-        log_entry["msg"].append(msg)
-        
-    def print_log(self, id: int) -> None:
-        log_entry = self.logs[id]
-        display_msg = f" >>>>>>>>>>>>>>>>>>>>>>>>>>>>> {log_entry['type'].upper()} <<<<<<<<<<<<<<<<<<<<<<<<<<<<"
-        display_msg += f"\n[{id}] Timestamp: {log_entry['timestamp']}"
-        for msg in log_entry["msg"]:
-            display_msg += f"\n{msg}"
-        print(display_msg)
-        
-    def print_timestamp(self, timestamp: int) -> None:
-        for id in range(self.count):
-            log_entry = self.logs[id]
-            if timestamp == log_entry["timestamp"]:
-                self.print_log(id)
-    
-    def print_last_log(self) -> None:
-        self.print_log(self.last_log_id)
-        
-    def __call__(self, log_id: int = None) -> None:
-        if log_id:
-            self.print_log(log_id)
-        else:
-            for id in range(self.count):
-                self.print_log(id)
-
-@dataclass
-class TradeLog(ActivityLog):
-    
-    def __post_init__(self) -> None:
-        super().__post_init__()
-    
-    def new_entry(self, trade_type: str, timestamp: int, symbol: str, amount_base: float, amount_quote: float, price: float, commission_quote: float, msg: Optional[str] = None) -> int:
-        id = self.count
-        log_entry = {
-            "id": id,
-            "trade_type": trade_type,
-            "timestamp": timestamp,
-            "symbol": symbol,
-            "symbol_quote": self.symbol_quote,
-            "amount_base": amount_base,
-            "amount_quote": amount_quote,
-            "price": price,
-            "commission_quote": commission_quote,
-            "balance": [],
-            "ack": False,
-            "msg": []
-        }
-        if msg:
-            log_entry["msg"].append(msg)
-        self.logs.append(log_entry)
-        self.count += 1
-        return id
-    
-    def print_log(self, id: int) -> None:
-        """
-        Method to print a log entry in the TradeLog.
-        
-        """
-        log_entry = self.logs[id]
-        trade_type = log_entry["trade_type"]
-        symbol = log_entry["symbol"]
-        display_msg = f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {symbol.upper()} - {trade_type.upper()} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
-        ack = ["(NAK)", "(ACK)"][log_entry["ack"]]
-        transaction_msg = (
-            f"{trade_type} {display_price(log_entry['amount_base'], symbol)} for {display_price(log_entry['amount_quote'], self.symbol_quote)} "
-            f"at {display_price(log_entry['price'], self.symbol_quote)}/{symbol} "
-            f"(Commission: {display_price(log_entry['commission_quote'], self.symbol_quote)})"
-        )   
-        display_msg += f"\n[{id}] {ack} - Timestamp: {log_entry['timestamp']}"
-        display_msg += f"\n-> PRE-TRADE: {log_entry['balance'][0]}"
-        display_msg += f"\n-> {transaction_msg}"
-        display_msg += f"\n-> POST-TRADE: {log_entry['balance'][1]}"
-        for msg in log_entry["msg"]:
-            display_msg += f"\n-> Comment: {msg}"
-        display_msg += f"\n"
-        print(display_msg)
-        
-    def print_symbol(self, symbol: str) -> None:
-        for id in range(self.count):
-            log_entry = self.logs[id]
-            if symbol == log_entry["symbol"]:
-                self.print_log(id)
-    
-    
-
 
 @dataclass
 class Portfolio(Asset):
@@ -165,7 +53,6 @@ class Portfolio(Asset):
         # We need to keep track of the properties that have been calculated
         self._properties_evolution_id = dict() # This dictionary will store the evolution_id of each property
         self._properties_cached = dict() # This dictionary will store the cached value of each property
-        self.TradeLog = TradeLog(symbol_quote=self.symbol)
     
     # @property
     # def check_update(self) -> bool:
@@ -401,40 +288,6 @@ class Portfolio(Asset):
         if verbose_status_flag:
             self.verbose_status = True
         self.print_portfolio()
-    
-    def log_buy_transaction(self, timestamp: int, symbol: str, amount_base: float, amount_quote: float, price: float, commission_quote: float, msg: Optional[str] = None) -> int:
-        id = self.TradeLog.new_entry("Buying", timestamp, symbol, amount_base, amount_quote, price, commission_quote, msg=msg)
-        self.log_balance(log_id=id)
-        return id
-    
-    def log_sell_transaction(self, timestamp: int, symbol: str, amount_base: float, amount_quote: float, price: float, commission_quote: float, msg: Optional[str] = None) -> int:
-        id = self.TradeLog.new_entry("Selling", timestamp, symbol, amount_base, amount_quote, price, commission_quote, msg=msg)
-        self.log_balance(log_id=id)
-        return id
-
-    def log_balance(self, log_id: int) -> None:
-        """
-        Method to log the balance of an asset in the portfolio.
-
-        """
-        symbol = self.TradeLog.logs[log_id]["symbol"]
-        msg = (
-            # Display the balance of the asset in the asset currency
-            f"[Asset balance: {display_price(self.get_value(symbol=symbol, quote=symbol), symbol)} "
-            # Display the balance of the asset in the portfolio currency
-            f"({display_price(self.get_value(symbol=symbol, quote=self.symbol), self.symbol)}) - "
-            # Display the cash balance in the portfolio currency
-            f"Quote balance: {display_price(self.balance, self.symbol)}]"
-        )
-        self.TradeLog.logs[log_id]["balance"].append(msg)
-    
-    def log_ack(self, log_id: int) -> None:
-        """
-        Method to log an acknowledgment in the TradeLog.
-
-        """
-        self.log_balance(log_id=log_id)
-        self.TradeLog.logs[log_id]["ack"] = True
         
     @check_positive
     def deposit(self, amount: float, timestamp: Optional[int] = None) -> None:
@@ -533,7 +386,6 @@ class Portfolio(Asset):
             timestamp = now_ms()
         amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
-        log_id = self.log_buy_transaction(timestamp, symbol, amount_base, amount_quote, price, commission_quote, msg=msg)
         # Record the transaction in the ledger for the asset
         # The transaction is not acknowledged yet
         self.Ledger.buy(
@@ -567,7 +419,6 @@ class Portfolio(Asset):
         self.assets[symbol]._deposit(amount_base)
         # Acknowledge the transaction
         self.Ledger.confirm_transaction(transaction_id)
-        self.log_ack(log_id)
         self.print_portfolio()
 
     @check_positive
@@ -592,7 +443,6 @@ class Portfolio(Asset):
             amount_quote = asset_value_quote * 0.9999 # To avoid rounding errors
         amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
-        log_id = self.log_sell_transaction(timestamp, symbol, amount_base, amount_quote, price, commission_quote, msg=msg)
         # Record the transaction in the ledger for the asset
         # The transaction is not acknowledged yet
         self.Ledger.sell(
@@ -626,7 +476,6 @@ class Portfolio(Asset):
         self.balance += float(net_amount_quote)
         # Acknowledge the transaction
         self.Ledger.confirm_transaction(transaction_id)
-        self.log_ack(log_id)
         self.print_portfolio()
     
     def empty_negligible_assets(self) -> None:

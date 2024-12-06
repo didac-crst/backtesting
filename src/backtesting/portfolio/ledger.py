@@ -554,9 +554,9 @@ class Ledger:
             f"(Commission: {display_price(log_entry['Commission'], self.portfolio_symbol)})"
         )   
         display_msg += f"\n[{id}] {ack}- Timestamp: {timestamp}"
-        display_msg += f"\n-> BALANCE PRE-TRADE: ASSET: {display_price(balance_asset_pre, symbol)} ({display_price(balance_asset_pre * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_pre, self.portfolio_symbol)}"
+        display_msg += f"\n-> BALANCE PRE-TRADE >> ASSET: {display_price(balance_asset_pre, symbol)} ({display_price(balance_asset_pre * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_pre, self.portfolio_symbol)}"
         display_msg += f"\n-> {transaction_msg}"
-        display_msg += f"\n-> BALANCE POST-TRADE: ASSET: {display_price(balance_asset_post, symbol)} ({display_price(balance_asset_post * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_post, self.portfolio_symbol)}"
+        display_msg += f"\n-> BALANCE POST-TRADE >> ASSET: {display_price(balance_asset_post, symbol)} ({display_price(balance_asset_post * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_post, self.portfolio_symbol)}"
         if messages:
             display_msg += f"\n----- Messages: -----------------------------------------------------------------------"
             count = 0
