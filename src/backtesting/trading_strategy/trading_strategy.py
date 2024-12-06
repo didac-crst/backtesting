@@ -287,8 +287,10 @@ class TradingStrategies:
         for PF in self.Portfolios:
             # ASSETS TO BUY >>>>>>>>>>>
             for asset in self.current_assets_to_buy:
-                # We buy the asset only if we have enough cash.
-                if PF.balance > self.quote_ticket_amount:
+                # We buy the asset only if we have enough cash plus we still have enough liquidity.
+                # The minimal threshold liquidity ensures to still have some cash after buying the asset.
+                mininmal_threshold_liquidity = self.minimal_liquidity_ratio * PF.equity_value / 100
+                if PF.balance > (self.quote_ticket_amount + mininmal_threshold_liquidity):
                     # We buy the asset only if the maximal equity per asset ratio is not reached.
                     asset_equity_ratio = PF.get_value(symbol=asset, quote='USDT') / PF.equity_value
                     if asset_equity_ratio < self.maximal_equity_per_asset_ratio:
