@@ -711,7 +711,7 @@ class Portfolio(Asset):
         Property to get the historical currency prices as a DataFrame with readable timestamps.
 
         """
-        prices_df = self.historical_prices_pivot
+        prices_df = self.historical_prices_pivot.copy()
         prices_df.reset_index(inplace=True)
         prices_df["Timestamp"] = pd.to_datetime(prices_df["Timestamp"], unit="s")
         prices_df.drop(columns=self.symbol, inplace=True)
@@ -988,7 +988,7 @@ class Portfolio(Asset):
         Method to get the growth of a currency in the portfolio.
 
         """
-        prices = self.historical_prices_pivot[symbol]
+        prices = self.historical_prices_pivot[symbol].copy()
         first_price = prices.iloc[0]
         last_price = prices.iloc[-1]
         return (last_price / first_price) - 1
@@ -1070,14 +1070,16 @@ class Portfolio(Asset):
         """
         # Create a figure with multiple subplots
         symbol = self.symbol
-        num_plots = len(self.assets_list) + 1
+        assets_list = self.assets_traded_list
+            # if column in self.assets_to_display_list:
+        num_plots = len(assets_list) + 1
         h_size = num_plots * 5
         fig, ax = plt.subplots(
             nrows=num_plots, ncols=1, figsize=(15, h_size), sharex=True
         )
 
         # Plot the equity on the first subplot
-        historical_equity = self.Ledger.equity_df
+        historical_equity = self.ledger_equity_datetime
         resampled_historical_equity = self.resample_data(historical_equity, type='last')
         datetime = resampled_historical_equity.index
         total_equity = resampled_historical_equity["Total"]
@@ -1088,10 +1090,10 @@ class Portfolio(Asset):
         ax[0].grid(True)
 
         # Plot the asset prices on the next ones
-        historical_prices = self.historical_prices_pivot
+        historical_prices = self.historical_prices_pivot.copy()
         resampled_historical_prices = self.resample_data(historical_prices, type='last')
         ax_counter = 1
-        for asset in self.assets_list:
+        for asset in assets_list:
             datetimes = resampled_historical_prices.index
             prices = resampled_historical_prices[asset]
             label = f"{asset} Price ({display_percentage(self.get_asset_growth(asset))})"
@@ -1160,7 +1162,7 @@ class Portfolio(Asset):
         ax.plot(datetime, theoretical_equity, linewidth=6, alpha=0.3, color=hold_color)
 
         # CURRENCY PRICES
-        historical_prices = self.historical_prices_pivot
+        historical_prices = self.historical_prices_pivot.copy()
         resampled_historical_prices = self.resample_data(historical_prices, type='mean')
         for asset in self.assets_list:
             label = (
