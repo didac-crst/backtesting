@@ -498,6 +498,8 @@ class Ledger:
         transactions_count = len(self.transactions)
         id = f"p{prices_count}_t{transactions_count}"
         return id
+
+    # Portfolio logging methods ------------------------------------------------
     
     @property
     @check_property_update

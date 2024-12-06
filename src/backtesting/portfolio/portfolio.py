@@ -54,16 +54,6 @@ class Portfolio(Asset):
         self._properties_evolution_id = dict() # This dictionary will store the evolution_id of each property
         self._properties_cached = dict() # This dictionary will store the cached value of each property
     
-    # @property
-    # def check_update(self) -> bool:
-    #     """
-    #     Property to check if the ledger has been updated.
-        
-    #     If there are new transactions or prices, the ledger has been updated.
-        
-    #     """
-    #     return self.Ledger.check_update
-    
     def new_transaction_id(self) -> int:
         """
         Method to get a new transaction ID.
@@ -743,13 +733,6 @@ class Portfolio(Asset):
         transactions_pivot.fillna(0, inplace=True)
         return transactions_pivot
 
-    # def calculate_historical_equity(self) -> None:
-    #     """
-    #     Method to calculate the historical equity of the portfolio.
-
-    #     """
-    #     self._historical_equity = self.Ledger.equity_df
-
     @property
     def historical_equity(self) -> pd.DataFrame:
         """
@@ -757,17 +740,6 @@ class Portfolio(Asset):
 
         """
         return self.Ledger.equity_df
-    
-    # def calculate_ledger_equity(self) -> None:
-    #     """
-    #     Method to calculate the historical equity of the portfolio.
-
-    #     """
-    #     self.Ledger.equity_df
-    #     equity_df = self.Ledger.equity_df
-    #     equity_df.reset_index(inplace=True)
-    #     equity_df["Timestamp"] = pd.to_datetime(equity_df["Timestamp"], unit="ms")
-    #     self._ledger_equity = equity_df.set_index("Timestamp")
 
     @property
     @check_property_update
@@ -873,26 +845,6 @@ class Portfolio(Asset):
         assets_raw_info = self.performance_assets_raw_info
         gains_assets = assets_raw_info['value'] + assets_raw_info['SELL'] - assets_raw_info['commissions'] - assets_raw_info['BUY']
         return gains_assets
-
-    # def calculate_historical_theoretical_hold_equity(self) -> None:
-    #     """
-    #     Method to calculate the theoretical gains of holding the assets in the portfolio.
-
-    #     """
-    #     prices = self.ledger_prices
-    #     # Need to recalculate the equity to have the correct values
-    #     self.calculate_ledger_equity()
-    #     equity = self.ledger_equity.copy()
-    #     # No price for portfolio currency, set it to 1
-    #     prices[self.symbol] = 1
-    #     equity.drop(columns=["Total"], inplace=True, errors="ignore")
-    #     initial_price = prices.iloc[0]
-    #     initial_assets_quote = equity.iloc[0]
-    #     initial_assets_base = initial_assets_quote / initial_price
-    #     # As it is an equity calculation, we don't need to consider the commissions
-    #     # They are already debited after the first transaction
-    #     historical_assets_quote = initial_assets_base * prices
-    #     self._historical_theoretical_hold_equity = historical_assets_quote.sum(axis=1)
     
     @property
     @check_property_update
@@ -916,36 +868,6 @@ class Portfolio(Asset):
         historical_assets_quote = initial_assets_base * prices
         historical_theoretical_hold_equity = historical_assets_quote.sum(axis=1)
         return historical_theoretical_hold_equity
-
-    # def calculate_hold_gains_assets(self) -> pd.Series:
-    #     """
-    #     Method to calculate the theoretical gains of holding the assets in the portfolio.
-
-    #     """
-    #     prices = self.ledger_prices
-    #     # Need to recalculate the equity to have the correct values
-    #     self.calculate_ledger_equity()
-    #     equity = self.ledger_equity.copy()
-    #     if (len(prices) > 0) & (len(equity) > 0):
-    #         # No price for portfolio currency, set it to 1
-    #         prices[self.symbol] = 1
-    #         equity.drop(columns=["Total"], inplace=True, errors="ignore")
-    #         initial_assets_quote = equity.iloc[0]
-    #         initial_prices = prices.iloc[0]
-    #         final_prices = prices.iloc[-1]
-    #         initial_assets_base = (initial_assets_quote / initial_prices)
-    #         # Initial commissions can't be extracted from total_commissions
-    #         # When trading, total commissions increases
-    #         commissions = self.invested_capital - initial_assets_quote.sum()
-    #         # Commissions are only applied to the portfolio currency at the initial point
-    #         initial_assets_quote[self.symbol] = initial_assets_quote[self.symbol] + commissions
-    #         # Final commissions are not part of the final assets
-    #         final_assets_quote = initial_assets_base * final_prices
-    #         hold_gains = final_assets_quote - initial_assets_quote
-    #     else:
-    #         assets_list = [self.symbol, *self.assets_list]
-    #         hold_gains = pd.Series([0.0] * len(assets_list), index=assets_list)
-    #     self._hold_gains_assets = hold_gains
     
     @property
     @check_property_update
