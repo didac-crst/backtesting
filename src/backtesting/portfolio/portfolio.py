@@ -36,9 +36,9 @@ class Portfolio(Asset):
     name: str = ""
     commission_trade: float = 0.0
     commission_transfer: float = 0.0
-    frequency_displayed: str = "600s"
     transaction_id: int = 0
     displayed_assets: int = 9
+    time_chart_resolution: int = 400
 
     # Portfolio internal methods ------------------------------------------------
 
@@ -494,16 +494,30 @@ class Portfolio(Asset):
         return (start, end)
     
     @property
-    def frequency_resampling(self) -> str:
+    def timespan(self) -> int:
+        """
+        Property to get the timespan of the portfolio in seconds.
+
+        """
+        start, end = self.timerange
+        return end - start
+    
+    @property
+    def time_bar_width(self) -> int:
+        """
+        Property to get the width of the time bars in the chart.
+
+        """
+        return int(self.timespan / self.time_chart_resolution) / 25000
+    
+    @property
+    def frequency_resampling(self) -> int:
         """
         Property to get the frequency for resampling the data.
 
         """
-        divisions = 50
-        start, end = self.timerange
-        timespan = end - start
-        frequency = int(timespan / divisions)
-        return f"{frequency}s"
+        frequency = int(self.timespan / self.time_chart_resolution)
+        return frequency
 
     @property
     @check_property_update
@@ -1029,26 +1043,38 @@ class Portfolio(Asset):
         """
         series_positive = series[series > 0].copy()
         reference = series_positive.iloc[0]
-        return (series / reference) - 1
+        return (series / reference) -1
+    
+    # def log_returns(self, series: pd.Series) -> pd.Series:
+    #     """
+    #     Method to calculate the log returns of a series.
 
-    def resample_data(self, df: pd.DataFrame, type: Literal['last', 'mean', 'sum'], freq: Optional[str] = None) -> pd.DataFrame:
+    #     """
+    #     series_positive = series[series > 0].copy()
+    #     reference = series_positive.iloc[0]
+    #     return np.log(series) - np.log(reference)
+
+    def resample_data(self, df: pd.DataFrame, type: Literal['last', 'mean', 'sum'], factor: int = 1) -> pd.DataFrame:
         """
         Method to resample the data to the frequency displayed.
 
         This is useful to have a more readable plot and less computational cost.
+        
+        The factor is used mainly when displaying bars in the chart.
+        In that case we want a smaller resolution to see the bars.
 
         """
         # COMMENTED BECAUSE I WANT TO TEST PLOTTING WITH THE ORIGINAL DATA
-        if freq is None:
-            freq = self.frequency_displayed
+        freq = int(self.frequency_resampling * factor)
+        freq_str = f"{freq}s"
         # df.index = pd.to_datetime(df.index, unit="s")
         df.index = pd.DatetimeIndex(pd.to_datetime(df.index, unit="s"))
         if type == 'mean':
-            return df.resample(freq).mean()
+            return df.resample(freq_str).mean()
         elif type == 'last':
-            return df.resample(freq).last()
+            return df.resample(freq_str).last()
         elif type == 'sum':
-            return df.resample(freq).sum()
+            return df.resample(freq_str).sum()
         return df
 
     # Portfolio logging methods ------------------------------------------------
@@ -1210,7 +1236,7 @@ class Portfolio(Asset):
         ax.grid(True)
         # To enable the grid for minor ticks
         ax.xaxis.set_minor_locator(AutoMinorLocator())
-        ax.yaxis.set_minor_locator(AutoMinorLocator())
+        # ax.yaxis.set_minor_locator(AutoMinorLocator())
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
         ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
@@ -1322,24 +1348,23 @@ class Portfolio(Asset):
         # It is needed to split buys and sells to have a better visualization
         # When resampling buys and sells they would cancel each other in the same sampling window
         resample_type = 'sum'
+        factor = 5
         buys_df = transactions_df[transactions_df > 0].fillna(0)
-        resampled_buys_df = self.resample_data(buys_df, type=resample_type, freq=self.frequency_resampling)
+        resampled_buys_df = self.resample_data(buys_df, type=resample_type, factor=factor)
         sells_df = transactions_df[transactions_df < 0].fillna(0)
-        resampled_sells_df = self.resample_data(sells_df, type=resample_type, freq=self.frequency_resampling)
+        resampled_sells_df = self.resample_data(sells_df, type=resample_type, factor=factor)
         # Initialize a variable to keep track of the bottom position for buys
         bottoms_buy = np.zeros(len(resampled_buys_df))
         # Initialize a variable to keep track of the bottom position for sells
         bottoms_sell = np.zeros(len(resampled_sells_df))
-        # Set the width of the bars
-        bars_width = 0.02
         # We only want to display the top and bottom performers
         for column in self.assets_traded_list:
             if column in self.assets_to_display_list:
                 color = label_colors[column]
                 # Plot the bar chart buys
-                ax.bar(resampled_buys_df.index, resampled_buys_df[column], label=column, bottom=bottoms_buy, width=bars_width, color=color, alpha=1.0, edgecolor='black')
+                ax.bar(resampled_buys_df.index, resampled_buys_df[column], label=column, bottom=bottoms_buy, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
                 # Plot the bar chart sells
-                ax.bar(resampled_sells_df.index, resampled_sells_df[column], bottom=bottoms_sell, width=bars_width, color=color, alpha=1.0, edgecolor='black')
+                ax.bar(resampled_sells_df.index, resampled_sells_df[column], bottom=bottoms_sell, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
                 # Update bottoms for buys and sells separately if needed
                 bottoms_buy += resampled_buys_df[column]
                 bottoms_sell += resampled_sells_df[column]
@@ -1349,9 +1374,9 @@ class Portfolio(Asset):
         resampled_sells_agg_df = resampled_sells_df[assets_to_aggregate].sum(axis=1)
         color = label_colors[self.other_assets]
         # Plot the bar chart buys
-        ax.bar(resampled_buys_agg_df.index, resampled_buys_agg_df, label=self.other_assets, bottom=bottoms_buy, width=bars_width, color=color, alpha=1.0, edgecolor='black')
+        ax.bar(resampled_buys_agg_df.index, resampled_buys_agg_df, label=self.other_assets, bottom=bottoms_buy, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
         # Plot the bar chart sells
-        ax.bar(resampled_sells_agg_df.index, resampled_sells_agg_df, bottom=bottoms_sell, width=bars_width, color=color, alpha=1.0, edgecolor='black')
+        ax.bar(resampled_sells_agg_df.index, resampled_sells_agg_df, bottom=bottoms_sell, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
         ax.set_title("Transactions Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel(f"Value / Amount ({self.symbol})")
