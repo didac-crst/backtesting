@@ -1194,6 +1194,45 @@ class Portfolio(Asset):
             return df.resample(freq).last()
         elif type == 'sum':
             return df.resample(freq).sum()
+
+    # Portfolio logging methods ------------------------------------------------
+    
+    def print_logs(self, ids: Optional[list[int]]) -> None:
+        """
+        Method to print the log entries for a list of ids.
+
+        """
+        self.Ledger.print_logs(ids)
+        
+    
+    def print_logs_timestamp(self, timestamp: int) -> None:
+        """
+        Method to print all the log entries for a specific timestamp.
+        
+        """
+        self.Ledger.print_logs_timestamp(timestamp)
+    
+    def print_logs_symbol(self, symbol: str) -> None:
+        """
+        Method to print all the log entries for a specific symbol.
+            
+        """
+        self.Ledger.print_logs_symbol(symbol)
+    
+    def print_last_log(self) -> None:
+        """
+        Method to print the last log entry.
+            
+        """
+        self.Ledger.print_last_log()
+    
+    def print_logs_all(self) -> None:
+        """
+        Method to print all the log entries.
+            
+        """
+        self.Ledger.print_logs_all()
+
     
     # Portfolio ploting methods ------------------------------------------------
 

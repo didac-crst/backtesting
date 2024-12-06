@@ -557,16 +557,53 @@ class Ledger:
         display_msg += f"\n-> BALANCE PRE-TRADE: ASSET: {display_price(balance_asset_pre, symbol)} ({display_price(balance_asset_pre * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_pre, self.portfolio_symbol)}"
         display_msg += f"\n-> {transaction_msg}"
         display_msg += f"\n-> BALANCE POST-TRADE: ASSET: {display_price(balance_asset_post, symbol)} ({display_price(balance_asset_post * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_post, self.portfolio_symbol)}"
-        for msg in messages:
-            display_msg += f"\n-> Message: {msg}"
+        if messages:
+            display_msg += f"\n----- Messages: -----------------------------------------------------------------------"
+            count = 0
+            for msg in messages:
+                count += 1
+                display_msg += f"\n-> {count}: {msg}"
         display_msg += f"\n"
         print(display_msg)
     
-    def print_logs(self) -> None:
+    def print_logs(self, ids: Optional[list]) -> None:
+        """
+        Method to print the log entries for a list of ids.
+            
+        """
+        if isinstance(ids, int):
+            ids = [ids]
+        for id in ids:
+            self.print_log(id)
+    
+    def print_logs_timestamp(self, timestamp: int) -> None:
+        """
+        Method to print all the log entries for a specific timestamp.
+        
+        """
+        logs_ids = self.log_df[self.log_df['Timestamp'] == timestamp].index
+        self.print_logs(logs_ids)
+    
+    def print_logs_symbol(self, symbol: str) -> None:
+        """
+        Method to print all the log entries for a specific symbol.
+            
+        """
+        logs_ids = self.log_df[self.log_df['Symbol'] == symbol].index
+        self.print_logs(logs_ids)
+    
+    def print_last_log(self) -> None:
+        """
+        Method to print the last log entry.
+            
+        """
+        last_log_id = self.log_df.index[-1]
+        self.print_log(last_log_id)
+    
+    def print_logs_all(self) -> None:
         """
         Method to print all the log entries.
             
         """
-        for id in self.log_df.index:
-            self.print_log(id)
+        self.print_logs(self.log_df.index)
         
