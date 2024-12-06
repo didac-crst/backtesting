@@ -703,6 +703,19 @@ class Portfolio(Asset):
         return self.historical_prices.pivot_table(
             index="Timestamp", columns="Symbol", values="Price"
         )
+    
+    @property
+    @check_property_update
+    def historical_prices_pivot_displayable(self) -> pd.DataFrame:
+        """
+        Property to get the historical prices pivot of the portfolio as a DataFrame with the share for relevant assets.
+
+        """
+        assets_list = self.assets_to_display_list
+        assets_list.append(self.symbol)
+        assets_list.remove(self.other_assets)
+        historical_prices_pivot = self.historical_prices_pivot[assets_list].copy()
+        return historical_prices_pivot
 
     @property
     @check_property_update
@@ -1177,9 +1190,9 @@ class Portfolio(Asset):
         ax.plot(datetime, theoretical_equity, linewidth=6, alpha=0.3, color=hold_color)
 
         # CURRENCY PRICES
-        historical_prices = self.historical_prices_pivot.copy()
+        historical_prices = self.historical_prices_pivot_displayable.copy()
         resampled_historical_prices = self.resample_data(historical_prices, type='mean')
-        for asset in self.assets_list:
+        for asset in resampled_historical_prices.columns:
             label = (
                 f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
             )
@@ -1379,25 +1392,6 @@ class Portfolio(Asset):
         cmap = plt.get_cmap("tab20")
         colors = {label: cmap(i) for i, label in enumerate(labels)}
         return colors
-    
-    # @property
-    # @check_property_update
-    # def label_colors(self) -> None:
-    #     def get_colors(cmap_name, num_colors):
-    #         cmap = plt.get_cmap(cmap_name)
-    #         return [cmap(i / num_colors) for i in range(num_colors)]
-
-    #     # Example usage
-    #     hold = 'hold'
-    #     labels = [self.symbol, hold, *self.assets_to_display_list]
-    #     num_colors = len(labels)
-    #     cmap = get_colors("Set2", num_colors)
-    #     print(cmap)
-    #     # cmap = plt.get_cmap("tab20")
-    #     print(labels)
-    #     colors = {label: cmap[i] for i, label in enumerate(labels)}
-    #     print(colors)
-    #     return colors
 
     def plot_summary(self) -> None:
         """
