@@ -309,7 +309,7 @@ class Ledger:
 
     @property
     @check_property_update
-    def prices_df(self) -> pd.DataFrame:
+    def prices_raw_df(self) -> pd.DataFrame:
         """
         Property to get the currency prices' list as a DataFrame.
 
@@ -330,6 +330,19 @@ class Ledger:
             "Price",
         ]
         df = pd.DataFrame(data, columns=columns)
+        return df
+
+    @property
+    @check_property_update
+    def prices_df(self) -> pd.DataFrame:
+        """
+        Property to get the currency prices' list as a DataFrame.
+        
+        It keeps a low resolution of the prices to match the reporting list.
+        As well as only keeping the prices of the active assets.
+
+        """
+        df = self.prices_raw_df.copy()
         # We only keep the prices of the active assets
         df = df[df["Symbol"].isin(self.active_assets)]
         # We only keep the prices that are in the reporting list
@@ -337,6 +350,18 @@ class Ledger:
         df = df[df["Timestamp"].isin(self.timestamp_reporting_list)]
         df.reset_index(drop=True, inplace=True)
         return df
+
+    def get_price_asset_on_timestamp(self, symbol: str, timestamp: int) -> float:
+        """
+        Method to get the price of an asset in the portfolio at a specific timestamp.
+
+        """
+        try:
+            prices = self.prices_raw_df
+            price = prices[(prices["Symbol"] == symbol) & (prices["Timestamp"] == timestamp)].iloc[0]["Price"]
+            return float(price)
+        except IndexError:
+            raise ValueError(f"Price for {symbol} not found at timestamp {timestamp}")
 
     @property
     @check_property_update

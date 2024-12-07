@@ -744,6 +744,13 @@ class Portfolio(Asset):
         prices_df.drop(columns=self.symbol, inplace=True)
         ledger_prices = prices_df.set_index("Timestamp")
         return ledger_prices
+
+    def get_price_asset_on_timestamp(self, symbol: str, timestamp: int) -> float:
+        """
+        Method to get the price of an asset in the portfolio at a specific timestamp.
+
+        """
+        return self.Ledger.get_price_asset_on_timestamp(symbol, timestamp)
     
     @property
     @check_property_update
@@ -1173,16 +1180,36 @@ class Portfolio(Asset):
                 ax[ax_counter].yaxis.set_major_formatter(FuncFormatter(thousands))
             # Total doesn't have a price
             if asset != "Total":
-                # Create a secondary y-axis
+                # Create a secondary y-axis for the asset price
                 ax2[ax_counter] = ax[ax_counter].twinx()
                 # Ploting the price of the asset
                 datetimes = resampled_historical_prices.index
                 prices = resampled_historical_prices[asset]
-                ax2[ax_counter].plot(datetimes, prices, color="red")
+                ax2[ax_counter].plot(datetimes, prices, color="purple")
                 ax2[ax_counter].set_ylabel(f"Price ({symbol})")
                 # Format to thousands the y-axis only if the maximal value is higher than 1000
                 if prices.max() > 1000:
                     ax[ax_counter].yaxis.set_major_formatter(FuncFormatter(thousands))
+                # Plot the transactions
+                transactions = self.ledger_transactions
+                transactions_asset = pd.DataFrame(transactions[asset]).rename(columns={asset: "amount"})
+                # Records with zero amount are absences of transactions
+                transactions_asset = transactions_asset[transactions_asset["amount"] != 0]
+                if len(transactions_asset) > 0:
+                    transactions_asset['timestamp'] = transactions_asset.index
+                    transactions_asset['datetime'] = pd.to_datetime(transactions_asset['timestamp'], unit="s")
+                    transactions_asset['price'] = transactions_asset['timestamp'].apply(lambda x: self.get_price_asset_on_timestamp(asset, x))
+                    transactions_asset['size'] = transactions_asset['amount'].astype(int).abs()
+                    transactions_asset['label'] = transactions_asset['amount'].apply(lambda x: "BUY" if x > 0 else "SELL")
+                    for transaction_type in ["BUY", "SELL"]:
+                        if transaction_type == "BUY":
+                            marker = '^'
+                            color = 'blue'
+                        else:
+                            marker = 'v'
+                            color = 'red'
+                        transactions_asset_type = transactions_asset[transactions_asset['label'] == transaction_type]
+                        ax2[ax_counter].scatter(transactions_asset_type['datetime'], transactions_asset_type['price'], color=color, s=transactions_asset_type['size'], marker=marker)
             # Display different title for the total and the assets
             if asset == "Total":
                 info = f"(Gains: {display_price(self.gains, symbol)} | ROI: {display_percentage(self.roi)})"
