@@ -1125,51 +1125,77 @@ class Portfolio(Asset):
         """
         # Create a figure with multiple subplots
         symbol = self.symbol
-        assets_list = self.assets_traded_list
-        num_plots = len(assets_list) + 1
+        assets_list = ["Total"] + self.assets_traded_list
+        num_plots = len(assets_list)
         h_size = num_plots * 5
         fig, ax = plt.subplots(
             nrows=num_plots, ncols=1, figsize=(15, h_size), sharex=True
         )
-
+        ax2 = dict()
         # Plot the equity on the first subplot
         historical_equity = self.ledger_equity_datetime
         resampled_historical_equity = self.resample_data(historical_equity, type='last')
-        datetime = resampled_historical_equity.index
-        total_equity = resampled_historical_equity["Total"]
-        label = f"Equity (Gains: {display_price(self.gains, symbol)})"
-        ax[0].plot(datetime, total_equity, label=label)
-        ax[0].set_ylabel(f"Equity ({symbol})")
-        ax[0].set_title("Portfolio Value Over Time")
-        ax[0].grid(True)
-
-        # Plot the asset prices on the next ones
+        # datetime = resampled_historical_equity.index
+        # total_equity = resampled_historical_equity["Total"]
+        # label = f"Equity (Gains: {display_price(self.gains, symbol)})"
+        # ax[0].plot(datetime, total_equity, label=label)
+        # ax[0].set_ylabel(f"Equity ({symbol})")
+        # ax[0].set_title("Portfolio Value Over Time")
+        # ax[0].grid(True)
+        # ax_counter_value_magnitude[0] = np.max(total_equity)
+        # # Plot the asset prices on the next ones
         historical_prices = self.historical_prices_pivot.copy()
         resampled_historical_prices = self.resample_data(historical_prices, type='last')
-        ax_counter = 1
+        ax_counter = 0
         for asset in assets_list:
-            datetimes = resampled_historical_prices.index
-            prices = resampled_historical_prices[asset]
-            label = f"{asset} Price ({display_percentage(self.get_asset_growth(asset))})"
-            ax[ax_counter].plot(datetimes, prices, label=label)
-            ax[ax_counter].set_ylabel(f"Price ({symbol})")
-            ax[ax_counter].set_title(f"{asset} Price Over Time")
-            ax_counter += 1
-
-        for i in range(num_plots):
-            ax[i].set_xlabel("Time")
-            ax[i].grid(True)
+            # Ploting the equity of the asset
+            historical_equity = self.ledger_equity_datetime
+            resampled_historical_equity = self.resample_data(historical_equity, type='last')
+            datetime = resampled_historical_equity.index
+            total_equity = resampled_historical_equity[asset]
+            # Different settings for the total and the assets
+            if asset == "Total":
+                alpha = 1
+            else:
+                alpha = 0.1
+                ax[ax_counter].fill_between(datetime, total_equity, where=(total_equity > 0), color="green", alpha=0.2)  # type: ignore
+            ax[ax_counter].plot(datetime, total_equity, color="green", alpha=alpha)
+            ax[ax_counter].set_ylabel(f"Equity ({symbol})")
+            ax[ax_counter].set_xlabel("Time")
+            ax[ax_counter].grid(True)
             # To enable the grid for minor ticks
-            ax[i].xaxis.set_minor_locator(AutoMinorLocator())
-            ax[i].yaxis.set_minor_locator(AutoMinorLocator())
-            ax[i].xaxis.set_major_locator(mdates.AutoDateLocator())
-            ax[i].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
-            ax[i].yaxis.set_major_formatter(FuncFormatter(thousands))
-            plt.setp(ax[i].get_xticklabels(), rotation=45, visible=True)
-            ax[i].grid(which="both")
-            ax[i].grid(which="minor", alpha=0.3)
-            ax[i].grid(which="major", alpha=0.5)
-            ax[i].legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
+            ax[ax_counter].xaxis.set_minor_locator(AutoMinorLocator())
+            ax[ax_counter].yaxis.set_minor_locator(AutoMinorLocator())
+            ax[ax_counter].xaxis.set_major_locator(mdates.AutoDateLocator())
+            ax[ax_counter].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+            # Format to thousands the y-axis only if the maximal value is higher than 1000
+            if total_equity.max() > 1000:
+                ax[ax_counter].yaxis.set_major_formatter(FuncFormatter(thousands))
+            # Total doesn't have a price
+            if asset != "Total":
+                # Create a secondary y-axis
+                ax2[ax_counter] = ax[ax_counter].twinx()
+                # Ploting the price of the asset
+                datetimes = resampled_historical_prices.index
+                prices = resampled_historical_prices[asset]
+                ax2[ax_counter].plot(datetimes, prices, color="red")
+                ax2[ax_counter].set_ylabel(f"Price ({symbol})")
+                # Format to thousands the y-axis only if the maximal value is higher than 1000
+                if prices.max() > 1000:
+                    ax[ax_counter].yaxis.set_major_formatter(FuncFormatter(thousands))
+            # Display different title for the total and the assets
+            if asset == "Total":
+                info = f"(Gains: {display_price(self.gains, symbol)} | ROI: {display_percentage(self.roi)})"
+                ax[ax_counter].set_title(f"Portfolio Value Over Time {info}")
+            else:
+                info = f"(Price Growth: {display_percentage(self.get_asset_growth(asset))})"
+                ax[ax_counter].set_title(f"Price Over Time [{asset}] {info}")
+            ax[ax_counter].grid(which="both")
+            ax[ax_counter].grid(which="minor", alpha=0.3)
+            ax[ax_counter].grid(which="major", alpha=0.5)
+            # ax[ax_counter].legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
+            plt.setp(ax[ax_counter].get_xticklabels(), rotation=45, visible=True)
+            ax_counter += 1
 
         # Show the plot
         plt.show()
