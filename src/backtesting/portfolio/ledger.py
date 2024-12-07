@@ -633,4 +633,12 @@ class Ledger:
             
         """
         self.print_logs(self.log_df.index)
+    
+    def print_logs_nak(self) -> None:
+        """
+        Method to print all the log entries that have not been acknowledged.
+            
+        """
+        logs_ids = self.log_df[self.log_df['Ack'] == False].index
+        self.print_logs(logs_ids)
         

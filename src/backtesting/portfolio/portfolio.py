@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator, FuncFormatter
 import matplotlib.dates as mdates
+from matplotlib.lines import Line2D
 
 from .asset import Asset
 from .ledger import Ledger
@@ -37,7 +38,7 @@ class Portfolio(Asset):
     commission_trade: float = 0.0
     commission_transfer: float = 0.0
     transaction_id: int = 0
-    displayed_assets: int = 9
+    displayed_assets: int = 15
     time_chart_resolution: int = 400
 
     # Portfolio internal methods ------------------------------------------------
@@ -109,10 +110,10 @@ class Portfolio(Asset):
         """
         data = [
             [
-                "Symbol",
+                "Currency",
                 "Balance",
                 "Value",
-                "Price",
+                "Last Price",
                 "Transactions",
                 "Total traded",
                 "Performance",
@@ -145,6 +146,18 @@ class Portfolio(Asset):
         return display_pretty_table(data, quote_currency= self.symbol, padding=6, sorting_columns=1)
     
     @property
+    def period(self) -> str:
+        """
+        Property to get the period of the portfolio.
+
+        """
+        timerange = self.timerange
+        start = pd.to_datetime(timerange[0], unit="s")
+        end = pd.to_datetime(timerange[1], unit="s")
+        text = f"from {start} to {end}"
+        return text
+    
+    @property
     @check_property_update
     def text_repr(self) -> str:
         """
@@ -152,14 +165,20 @@ class Portfolio(Asset):
         
         """
         self.empty_negligible_assets()
+        equity_value = self.equity_value
+        quote_balance = self.balance
+        quote_equity_ratio = quote_balance / equity_value
         text = (
                 f"Portfolio ({self.name}):\n"
-                f"  -> Symbol = {self.symbol}\n"
-                f"  -> Transfer commission = {display_percentage(self.commission_transfer)}\n"
-                f"  -> Trade commission = {display_percentage(self.commission_trade)}\n"
-                f"  -> Invested capital = {display_price(self.invested_capital, self.symbol)}\n"
-                f"  -> Disbursed capital = {display_price(self.disbursed_capital, self.symbol)}\n"
-                f"  -> Quote balance = {display_price(self.balance, self.symbol)}\n"
+                f"  -> Cash currency: {self.symbol}\n"
+                f"  -> Transfer commission: {display_percentage(self.commission_transfer)}\n"
+                f"  -> Trade commission: {display_percentage(self.commission_trade)}\n"
+                f"  -> Timerange: {self.period}\n"
+                f"  -> Timespan: {display_price(self.timespan,"seconds")}\n"
+                f"  -> Invested capital: {display_price(self.invested_capital, self.symbol)}\n"
+                f"  -> Disbursed capital: {display_price(self.disbursed_capital, self.symbol)}\n"
+                f"  -> Cash balance: {display_price(self.balance, self.symbol)}"
+                f" ({display_percentage(quote_equity_ratio)})\n"
         )
         # If there are no historical prices, it can't display any assets information.
         if self.historical_prices.empty:
@@ -169,26 +188,32 @@ class Portfolio(Asset):
                 f"{text}"
             )
         else:
+            assets_value = self.assets_value
+            assets_equity_ratio = assets_value / equity_value
             text = (
                 f"{text}"
-                f"  -> Assets value = {display_price(self.assets_value, self.symbol)}\n"
-                f"  -> Equity value = {display_price(self.equity_value, self.symbol)}\n"
-                f"  -> Transactions = {display_integer(self.transactions_count())}\n"
-                f"  -> Total traded = {display_price(self.transactions_sum(), self.symbol)}\n"
-                f"  -> Gains = {display_price(self.gains, self.symbol)}\n"
-                f"  -> Total commissions = {display_price(self.total_commissions, self.symbol)}\n"
-                f"  -> Commission gains ratio = {self.commission_gains_ratio_str}\n"
-                f"  -> ROI = {display_percentage(self.roi)}\n"
-                f"  -> Hold Gains (Theoretical) = {display_price(self.hold_gains, self.symbol)}\n"
-                f"  -> Hold ROI (Theoretical) = {display_percentage(self.hold_roi)}\n"
-                f"  -> ROI Performance (vs Hold) = {display_percentage(self.roi_vs_hold_roi)}\n"
-                f"  -> Assets:"
+                f"  -> Assets value: {display_price(self.assets_value, self.symbol)}"
+                f" ({display_percentage(assets_equity_ratio)})\n"
+                f"  -> Equity value: {display_price(self.equity_value, self.symbol)}\n"
+                f"  -> Transactions: {display_integer(self.transactions_count())}\n"
+                f"  -> Amount traded: {display_price(self.transactions_sum(), self.symbol)}\n"
+                f"  -> Gains: {display_price(self.gains, self.symbol)}\n"
+                f"  -> ROI: {display_percentage(self.roi)}\n"
+                f"  -> Commissions: {display_price(self.total_commissions, self.symbol)}\n"
+                f"  -> Commissions/Gains ratio: {self.commission_gains_ratio_str}\n"
+                f"  -> Hold Gains (Theoretical): {display_price(self.hold_gains, self.symbol)}\n"
+                f"  -> Hold ROI (Theoretical): {display_percentage(self.hold_roi)}\n"
+                f"  -> ROI Performance (vs Hold): {display_percentage(self.roi_vs_hold_roi)}\n"
+                f"  -> Assets Traded: "
             )
             if len(self.assets_traded_list) > 0:
-                text += f"\n{self.assets_table}\n\n"
+                text += (
+                    f"{len(self.assets_traded_list)}\n"
+                    f"{self.assets_table}\n\n"
+                )
             # This applies only in case of having updated the prices but not having any transaction yet.
             else:
-                text += " None\n\n"
+                text += "None\n\n"
         return text
 
     def __repr__(self) -> str:
@@ -827,6 +852,24 @@ class Portfolio(Asset):
         return equity_df.set_index("DateTime")
     
     @property
+    def ledger_equity_average(self) -> float:
+        """
+        Property to get the average equity for each asset in the portfolio.
+
+        """
+        return self.ledger_equity.mean()
+    
+    def top_ledger_equity_assets_average(self, n: int) -> pd.Series:
+        """
+        Property to get the average equity for the top assets in the portfolio.
+
+        """
+        ledger_equity_average = self.ledger_equity_average
+        entries_to_drop = [self.symbol, "Total"]
+        ledger_equity_average.drop(entries_to_drop, inplace=True)
+        return ledger_equity_average.nlargest(n)
+    
+    @property
     @check_property_update
     def ledger_equity_share(self) -> pd.DataFrame:
         """
@@ -1122,6 +1165,12 @@ class Portfolio(Asset):
         """
         self.Ledger.print_logs_all()
 
+    def print_logs_nak(self) -> None:
+        """
+        Method to print the not acknowledged log entries.
+            
+        """
+        self.Ledger.print_logs_nak()
     
     # Portfolio ploting methods ------------------------------------------------
 
@@ -1139,18 +1188,10 @@ class Portfolio(Asset):
             nrows=num_plots, ncols=1, figsize=(15, h_size), sharex=True
         )
         ax2 = dict()
-        # Plot the equity on the first subplot
+        # For these we need equity and prices
+        # Afterwards we will also need the transactions
         historical_equity = self.ledger_equity_datetime
         resampled_historical_equity = self.resample_data(historical_equity, type='last')
-        # datetime = resampled_historical_equity.index
-        # total_equity = resampled_historical_equity["Total"]
-        # label = f"Equity (Gains: {display_price(self.gains, symbol)})"
-        # ax[0].plot(datetime, total_equity, label=label)
-        # ax[0].set_ylabel(f"Equity ({symbol})")
-        # ax[0].set_title("Portfolio Value Over Time")
-        # ax[0].grid(True)
-        # ax_counter_value_magnitude[0] = np.max(total_equity)
-        # # Plot the asset prices on the next ones
         historical_prices = self.historical_prices_pivot.copy()
         resampled_historical_prices = self.resample_data(historical_prices, type='last')
         ax_counter = 0
@@ -1163,11 +1204,15 @@ class Portfolio(Asset):
             # Different settings for the total and the assets
             if asset == "Total":
                 alpha = 1
+                label_plot = "Equity"
             else:
                 alpha = 0.1
-                ax[ax_counter].fill_between(datetime, total_equity, where=(total_equity > 0), color="green", alpha=0.2)  # type: ignore
-            ax[ax_counter].plot(datetime, total_equity, color="green", alpha=alpha)
-            ax[ax_counter].set_ylabel(f"Equity ({symbol})")
+                label_plot = None
+                ax[ax_counter].fill_between(datetime, total_equity, where=(total_equity > 0), color="green", alpha=0.2, label="Equity")
+            ax[ax_counter].plot(datetime, total_equity, color="green", alpha=alpha, label=label_plot)
+            ax[ax_counter].set_ylabel(f"Equity ({symbol})", color="green")
+            # Color the y-axis tick labels            
+            ax[ax_counter].tick_params(axis='y', colors='green')
             ax[ax_counter].set_xlabel("Time")
             ax[ax_counter].grid(True)
             # To enable the grid for minor ticks
@@ -1185,8 +1230,10 @@ class Portfolio(Asset):
                 # Ploting the price of the asset
                 datetimes = resampled_historical_prices.index
                 prices = resampled_historical_prices[asset]
-                ax2[ax_counter].plot(datetimes, prices, color="purple")
-                ax2[ax_counter].set_ylabel(f"Price ({symbol})")
+                ax2[ax_counter].plot(datetimes, prices, color="purple", label="Price")
+                ax2[ax_counter].set_ylabel(f"Price ({symbol})", color="purple")
+                # Color the y-axis tick labels
+                ax2[ax_counter].tick_params(axis='y', colors='purple')
                 # Format to thousands the y-axis only if the maximal value is higher than 1000
                 if prices.max() > 1000:
                     ax[ax_counter].yaxis.set_major_formatter(FuncFormatter(thousands))
@@ -1200,27 +1247,34 @@ class Portfolio(Asset):
                     transactions_asset['datetime'] = pd.to_datetime(transactions_asset['timestamp'], unit="s")
                     transactions_asset['price'] = transactions_asset['timestamp'].apply(lambda x: self.get_price_asset_on_timestamp(asset, x))
                     transactions_asset['size'] = transactions_asset['amount'].astype(int).abs()
-                    transactions_asset['label'] = transactions_asset['amount'].apply(lambda x: "BUY" if x > 0 else "SELL")
-                    for transaction_type in ["BUY", "SELL"]:
-                        if transaction_type == "BUY":
+                    transactions_asset['label'] = transactions_asset['amount'].apply(lambda x: "Buy" if x > 0 else "Sell")
+                    for transaction_type in ["Buy", "Sell"]:
+                        if transaction_type == "Buy":
                             marker = '^'
                             color = 'blue'
                         else:
                             marker = 'v'
                             color = 'red'
                         transactions_asset_type = transactions_asset[transactions_asset['label'] == transaction_type]
-                        ax2[ax_counter].scatter(transactions_asset_type['datetime'], transactions_asset_type['price'], color=color, s=transactions_asset_type['size'], marker=marker)
+                        ax2[ax_counter].scatter(transactions_asset_type['datetime'], transactions_asset_type['price'], color=color, alpha=0.3, s=transactions_asset_type['size'], marker=marker, label=None)
             # Display different title for the total and the assets
             if asset == "Total":
                 info = f"(Gains: {display_price(self.gains, symbol)} | ROI: {display_percentage(self.roi)})"
                 ax[ax_counter].set_title(f"Portfolio Value Over Time {info}")
+                ax[ax_counter].legend(fontsize='small', loc='upper left')
             else:
                 info = f"(Price Growth: {display_percentage(self.get_asset_growth(asset))})"
                 ax[ax_counter].set_title(f"Price Over Time [{asset}] {info}")
+                # Combine legends from both axes
+                lines, labels = ax[ax_counter].get_legend_handles_labels()
+                lines2, labels2 = ax2[ax_counter].get_legend_handles_labels()
+                # Create custom legend handles for scatter plots with fixed size
+                custom_lines = [Line2D([0], [0], color='blue', alpha=0.3, marker='^', linestyle='None', markersize=10, label='Buy'),
+                                Line2D([0], [0], color='red', alpha=0.3, marker='v', linestyle='None', markersize=10, label='Sell')]
+                ax2[ax_counter].legend(lines + lines2 + custom_lines, labels + labels2 + ['BUY', 'SELL'], fontsize='small')
             ax[ax_counter].grid(which="both")
             ax[ax_counter].grid(which="minor", alpha=0.3)
             ax[ax_counter].grid(which="major", alpha=0.5)
-            # ax[ax_counter].legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
             plt.setp(ax[ax_counter].get_xticklabels(), rotation=45, visible=True)
             ax_counter += 1
 
@@ -1315,9 +1369,6 @@ class Portfolio(Asset):
             fig = plt.figure(figsize=(15, 5))
             # Create an Axes object for the figure
             ax = fig.add_subplot(111)
-            # Need to recalculate the equity to have the correct values
-            # self.calculate_ledger_equity()
-
         label_colors = self.label_colors.copy()
         equity_share_df = self.ledger_equity_share_displayable.copy()
         resampled_equity_share_df = self.resample_data(equity_share_df, type='mean')
@@ -1382,7 +1433,7 @@ class Portfolio(Asset):
         non_liquid_df = self.resample_data(non_liquid_df, type='last')
         datetime = non_liquid_df.index
         assets_value = non_liquid_df["Total"]
-        ax.plot(datetime, assets_value, color=color_hold, alpha=1.0, linewidth=1)
+        ax.plot(datetime, assets_value, color=color_hold, alpha=0.4, linewidth=1)
 
         # Equity
         historical_equity = self.ledger_equity_datetime.copy()
@@ -1392,8 +1443,8 @@ class Portfolio(Asset):
         ax.plot(datetime, total_equity, color=color_symbol, alpha=1.0, linewidth=1)
 
         # Fill where the differences
-        ax.fill_between(datetime, assets_value, color=color_hold, alpha=0.2, label='Assets')
-        ax.fill_between(datetime, assets_value, total_equity, color=color_symbol, alpha=0.2, label='Liquid')
+        ax.fill_between(datetime, assets_value, color=color_hold, alpha=0.4, label='Assets')
+        ax.fill_between(datetime, assets_value, total_equity, color=color_symbol, alpha=0.4, label='Cash')
 
         # Need to recalculate the equity to have the correct values
         transactions_df = self.ledger_transactions_datetime.copy()
@@ -1456,10 +1507,11 @@ class Portfolio(Asset):
         Method to create a consistent list of assets to display in the plots.
 
         """
-        top_performers = self.top_performers(n=self.displayed_assets).index.tolist()
-        bottom_performers = self.bottom_performers(n=self.displayed_assets).index.tolist()
+        # top_performers = self.top_performers(n=self.displayed_assets).index.tolist()
+        # bottom_performers = self.bottom_performers(n=self.displayed_assets).index.tolist()
+        top_equity_assets = self.top_ledger_equity_assets_average(n=self.displayed_assets).index.tolist()
         self.other_assets = 'Other Assets'
-        assets_to_display_list = top_performers + bottom_performers + [self.other_assets]
+        assets_to_display_list = top_equity_assets + [self.other_assets]
         return assets_to_display_list
     
     @property
