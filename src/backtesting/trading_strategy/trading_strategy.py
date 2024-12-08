@@ -180,7 +180,7 @@ class TradingStrategies:
             commission_trade=self.commission_trade,
             commission_transfer=self.commission_transfer
         )
-        PF.set_verbosity(type='silent')
+        PF.set_verbosity(verbosity_type='silent')
         # If we provide a dictionary, we use the assets and their amounts.
         if isinstance(self.initial_assets_list, dict):
             if self.initial_equity:

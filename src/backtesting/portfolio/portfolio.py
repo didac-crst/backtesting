@@ -84,21 +84,21 @@ class Portfolio(Asset):
         if self.name == "":
             self.name = get_random_name()
 
-    def set_verbosity(self, type: VerboseType) -> None:
+    def set_verbosity(self, verbosity_type: VerboseType) -> None:
         """
         Method to set the verbose status and action flags.
 
         """
-        if type == "status":
+        if verbosity_type == "status":
             self.verbose_status = True
             self.verbose_action = False
-        elif type == "action":
+        elif verbosity_type == "action":
             self.verbose_status = False
             self.verbose_action = True
-        elif type == "verbose":
+        elif verbosity_type == "verbose":
             self.verbose_status = True
             self.verbose_action = True
-        elif type == "silent":
+        elif verbosity_type == "silent":
             self.verbose_status = False
             self.verbose_action = False
         
@@ -897,6 +897,35 @@ class Portfolio(Asset):
         aggreted_assets = equity_share[cols_aggregated_assets].sum(axis=1)
         displayable_assets[self.other_assets] = aggreted_assets.copy()
         return displayable_assets
+   
+    @property
+    @check_property_update
+    def signals_pivot_df(self) -> pd.DataFrame:
+        """
+        Property to get the signals DataFrame as a pivot table.
+
+        """
+        signals_df = self.signals_df.copy()
+        if signals_df is not None:
+            signals_pivot_df = signals_df.pivot_table(index='timestamp', columns='symbol', values='value_signal')
+            return signals_pivot_df
+
+    @property
+    @check_property_update
+    def signals_displayable(self) -> pd.DataFrame:
+        """
+        Property to get the signals DataFrame as a pivot table.
+
+        """
+        signals_df = self.signals_pivot_df.copy()
+        if signals_df is not None:
+            # It could happen that some owned or traded assets are not in the signals DataFrame
+            # We need to make sure that these columns are considered (or we get an error in the next step)
+            columns_to_display = [c for c in signals_df.columns if c in self.assets_traded_list]
+            signals_df = signals_df[columns_to_display].copy()
+            resampled_signals_df = self.resample_data(signals_df, agg_type='mean')
+            signals_df["DateTime"] = pd.to_datetime(signals_df.index, unit="s")
+            return signals_df.set_index("DateTime")
 
     @property
     @check_property_update
@@ -1105,7 +1134,7 @@ class Portfolio(Asset):
     #     reference = series_positive.iloc[0]
     #     return np.log(series) - np.log(reference)
 
-    def resample_data(self, df: pd.DataFrame, type: Literal['last', 'mean', 'sum'], factor: int = 1) -> pd.DataFrame:
+    def resample_data(self, df: pd.DataFrame, agg_type: Literal['last', 'mean', 'sum'], factor: int = 1) -> pd.DataFrame:
         """
         Method to resample the data to the frequency displayed.
 
@@ -1120,11 +1149,11 @@ class Portfolio(Asset):
         freq_str = f"{freq}s"
         # df.index = pd.to_datetime(df.index, unit="s")
         df.index = pd.DatetimeIndex(pd.to_datetime(df.index, unit="s"))
-        if type == 'mean':
+        if agg_type == 'mean':
             return df.resample(freq_str).mean()
-        elif type == 'last':
+        elif agg_type == 'last':
             return df.resample(freq_str).last()
-        elif type == 'sum':
+        elif agg_type == 'sum':
             return df.resample(freq_str).sum()
         return df
 
@@ -1192,14 +1221,14 @@ class Portfolio(Asset):
         # For these we need equity and prices
         # Afterwards we will also need the transactions
         historical_equity = self.ledger_equity_datetime
-        resampled_historical_equity = self.resample_data(historical_equity, type='last')
+        resampled_historical_equity = self.resample_data(historical_equity, agg_type='last')
         historical_prices = self.historical_prices_pivot.copy()
-        resampled_historical_prices = self.resample_data(historical_prices, type='last')
+        resampled_historical_prices = self.resample_data(historical_prices, agg_type='last')
         ax_counter = 0
         for asset in assets_list:
             # Ploting the equity of the asset
             historical_equity = self.ledger_equity_datetime
-            resampled_historical_equity = self.resample_data(historical_equity, type='last')
+            resampled_historical_equity = self.resample_data(historical_equity, agg_type='last')
             datetime = resampled_historical_equity.index
             total_equity = resampled_historical_equity[asset]
             # Different settings for the total and the assets
@@ -1300,7 +1329,7 @@ class Portfolio(Asset):
 
         # EQUITY
         historical_equity = self.Ledger.equity_df
-        resampled_historical_equity = self.resample_data(historical_equity, type='mean')
+        resampled_historical_equity = self.resample_data(historical_equity, agg_type='mean')
         equity = self.normalize_to_growth(resampled_historical_equity["Total"])
         timestamp = equity.index
         datetime = pd.to_datetime(timestamp, unit="s")
@@ -1312,7 +1341,7 @@ class Portfolio(Asset):
 
         # THEORETICAL HOLD EQUITY
         theoretical_hold_equity = self.historical_theoretical_hold_equity
-        resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity, type='mean')
+        resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity, agg_type='mean')
         theoretical_equity = self.normalize_to_growth(resampled_theoretical_hold_equity)
         timestamp = theoretical_equity.index
         datetime = pd.to_datetime(timestamp, unit="s")
@@ -1325,7 +1354,7 @@ class Portfolio(Asset):
 
         # CURRENCY PRICES
         historical_prices = self.historical_prices_pivot_displayable.copy()
-        resampled_historical_prices = self.resample_data(historical_prices, type='mean')
+        resampled_historical_prices = self.resample_data(historical_prices, agg_type='mean')
         for asset in resampled_historical_prices.columns:
             label = (
                 f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
@@ -1372,7 +1401,7 @@ class Portfolio(Asset):
             ax = fig.add_subplot(111)
         label_colors = self.label_colors.copy()
         equity_share_df = self.ledger_equity_share_displayable.copy()
-        resampled_equity_share_df = self.resample_data(equity_share_df, type='mean')
+        resampled_equity_share_df = self.resample_data(equity_share_df, agg_type='mean')
         # Reverse the columns to do the cumsum in the correct order
         # Reorder the columns to have the portfolio currency at the end
         columns = list(equity_share_df.columns)
@@ -1431,14 +1460,14 @@ class Portfolio(Asset):
         equity = self.ledger_equity_datetime.copy()
         non_liquid = equity['Total'] - equity[self.symbol]
         non_liquid_df = pd.DataFrame(non_liquid, columns=['Total'])
-        non_liquid_df = self.resample_data(non_liquid_df, type='last')
+        non_liquid_df = self.resample_data(non_liquid_df, agg_type='last')
         datetime = non_liquid_df.index
         assets_value = non_liquid_df["Total"]
         ax.plot(datetime, assets_value, color=color_hold, alpha=0.4, linewidth=1)
 
         # Equity
         historical_equity = self.ledger_equity_datetime.copy()
-        resampled_historical_equity = self.resample_data(historical_equity, type='last')
+        resampled_historical_equity = self.resample_data(historical_equity, agg_type='last')
         datetime = resampled_historical_equity.index
         total_equity = resampled_historical_equity["Total"]
         ax.plot(datetime, total_equity, color=color_symbol, alpha=1.0, linewidth=1)
@@ -1452,12 +1481,12 @@ class Portfolio(Asset):
         # Resample buys and sells to have a better visualization
         # It is needed to split buys and sells to have a better visualization
         # When resampling buys and sells they would cancel each other in the same sampling window
-        resample_type = 'sum'
+        resample_agg_type = 'sum'
         factor = 5
         buys_df = transactions_df[transactions_df > 0].fillna(0)
-        resampled_buys_df = self.resample_data(buys_df, type=resample_type, factor=factor)
+        resampled_buys_df = self.resample_data(buys_df, agg_type=resample_agg_type, factor=factor)
         sells_df = transactions_df[transactions_df < 0].fillna(0)
-        resampled_sells_df = self.resample_data(sells_df, type=resample_type, factor=factor)
+        resampled_sells_df = self.resample_data(sells_df, agg_type=resample_agg_type, factor=factor)
         # Initialize a variable to keep track of the bottom position for buys
         bottoms_buy = np.zeros(len(resampled_buys_df))
         # Initialize a variable to keep track of the bottom position for sells
