@@ -4,6 +4,7 @@ from typing import Optional, Literal, Union
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 from matplotlib.ticker import AutoMinorLocator, FuncFormatter
 import matplotlib.dates as mdates
 from matplotlib.lines import Line2D
@@ -923,9 +924,8 @@ class Portfolio(Asset):
             # We need to make sure that these columns are considered (or we get an error in the next step)
             columns_to_display = [c for c in signals_df.columns if c in self.assets_traded_list]
             signals_df = signals_df[columns_to_display].copy()
-            resampled_signals_df = self.resample_data(signals_df, agg_type='mean')
             signals_df["DateTime"] = pd.to_datetime(signals_df.index, unit="s")
-            return signals_df.set_index("DateTime")
+            return signals_df.set_index("DateTime", drop=True)
 
     @property
     @check_property_update
@@ -1214,21 +1214,32 @@ class Portfolio(Asset):
         assets_list = ["Total"] + self.assets_traded_list
         num_plots = len(assets_list)
         h_size = num_plots * 5
-        fig, ax = plt.subplots(
+        fig, axs = plt.subplots(
             nrows=num_plots, ncols=1, figsize=(15, h_size), sharex=True
         )
-        ax2 = dict()
         # For these we need equity and prices
         # Afterwards we will also need the transactions
-        historical_equity = self.ledger_equity_datetime
+        historical_equity = self.ledger_equity_datetime.copy()
         resampled_historical_equity = self.resample_data(historical_equity, agg_type='last')
         historical_prices = self.historical_prices_pivot.copy()
         resampled_historical_prices = self.resample_data(historical_prices, agg_type='last')
-        ax_counter = 0
-        for asset in assets_list:
+        signals_df = self.signals_displayable.copy()
+        resampled_signals_df = self.resample_data(signals_df, agg_type='mean')
+        # We normalize the signals among all the assets
+        # Then all assets will have the same scale
+        # First we get the absolute max value
+        max_signal = resampled_signals_df.abs().max().max()
+        # Then we normalize the signals
+        resampled_signals_df = resampled_signals_df / max_signal
+        for i, asset in enumerate(assets_list):
+            ax = axs[i]
+            # Create a GridSpec with 2 rows and 1 column
+            # This is needed to make a second bottom narrower chart.
+            gs = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=ax.get_subplotspec(), height_ratios=[6, 2], hspace=0)
+            ax.set_yticklabels([])
+            ax.set_yticks([])
+            ax_main1 = fig.add_subplot(gs[0])
             # Ploting the equity of the asset
-            historical_equity = self.ledger_equity_datetime
-            resampled_historical_equity = self.resample_data(historical_equity, agg_type='last')
             datetime = resampled_historical_equity.index
             total_equity = resampled_historical_equity[asset]
             # Different settings for the total and the assets
@@ -1238,35 +1249,42 @@ class Portfolio(Asset):
             else:
                 alpha = 0.1
                 label_plot = None
-                ax[ax_counter].fill_between(datetime, total_equity, where=(total_equity > 0), color="green", alpha=0.2, label="Equity")
-            ax[ax_counter].plot(datetime, total_equity, color="green", alpha=alpha, label=label_plot)
-            ax[ax_counter].set_ylabel(f"Equity ({symbol})", color="green")
+                ax_main1.fill_between(datetime, total_equity, where=(total_equity > 0), color="green", alpha=0.2, label="Equity")
+            ax_main1.plot(datetime, total_equity, color="green", alpha=alpha, label=label_plot)
+            ax_main1.set_ylabel(f"Equity ({symbol})", color="green")
             # Color the y-axis tick labels            
-            ax[ax_counter].tick_params(axis='y', colors='green')
-            ax[ax_counter].set_xlabel("Time")
-            ax[ax_counter].grid(True)
+            ax_main1.tick_params(axis='y', colors='green')
+            ax_main1.set_xlabel("Time")
+            ax_main1.grid(True)
             # To enable the grid for minor ticks
-            ax[ax_counter].xaxis.set_minor_locator(AutoMinorLocator())
-            ax[ax_counter].yaxis.set_minor_locator(AutoMinorLocator())
-            ax[ax_counter].xaxis.set_major_locator(mdates.AutoDateLocator())
-            ax[ax_counter].xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+            ax.set_xticks([])
+            ax.set_xticklabels([])
+            ax_main1.xaxis.set_major_locator(mdates.AutoDateLocator())
+            ax_main1.xaxis.set_minor_locator(AutoMinorLocator())
+            ax_main1.yaxis.set_major_locator(mdates.AutoDateLocator())
+            ax_main1.yaxis.set_minor_locator(AutoMinorLocator())
+            # Hide x-axis labels and ticks on ax_main
+            ax_main1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+            ax_main1.grid(which="both")
+            ax_main1.grid(which="minor", alpha=0.3)
+            ax_main1.grid(which="major", alpha=0.5)
             # Format to thousands the y-axis only if the maximal value is higher than 1000
             if total_equity.max() > 1000:
-                ax[ax_counter].yaxis.set_major_formatter(FuncFormatter(thousands))
+                ax_main1.yaxis.set_major_formatter(FuncFormatter(thousands))
             # Total doesn't have a price
             if asset != "Total":
                 # Create a secondary y-axis for the asset price
-                ax2[ax_counter] = ax[ax_counter].twinx()
+                ax_main2 = ax_main1.twinx()
                 # Ploting the price of the asset
-                datetimes = resampled_historical_prices.index
+                datetime = resampled_historical_prices.index
                 prices = resampled_historical_prices[asset]
-                ax2[ax_counter].plot(datetimes, prices, color="purple", label="Price")
-                ax2[ax_counter].set_ylabel(f"Price ({symbol})", color="purple")
+                ax_main2.plot(datetime, prices, color="purple", label="Price")
+                ax_main2.set_ylabel(f"Price ({symbol})", color="purple")
                 # Color the y-axis tick labels
-                ax2[ax_counter].tick_params(axis='y', colors='purple')
+                ax_main2.tick_params(axis='y', colors='purple')
                 # Format to thousands the y-axis only if the maximal value is higher than 1000
                 if prices.max() > 1000:
-                    ax[ax_counter].yaxis.set_major_formatter(FuncFormatter(thousands))
+                    ax_main1.yaxis.set_major_formatter(FuncFormatter(thousands))
                 # Plot the transactions
                 transactions = self.ledger_transactions
                 transactions_asset = pd.DataFrame(transactions[asset]).rename(columns={asset: "amount"})
@@ -1286,28 +1304,66 @@ class Portfolio(Asset):
                             marker = 'v'
                             color = 'red'
                         transactions_asset_type = transactions_asset[transactions_asset['label'] == transaction_type]
-                        ax2[ax_counter].scatter(transactions_asset_type['datetime'], transactions_asset_type['price'], color=color, alpha=0.3, s=transactions_asset_type['size'], marker=marker, label=None)
+                        ax_main2.scatter(transactions_asset_type['datetime'], transactions_asset_type['price'], color=color, alpha=0.3, s=transactions_asset_type['size'], marker=marker, label=None)
             # Display different title for the total and the assets
             if asset == "Total":
                 info = f"(Gains: {display_price(self.gains, symbol)} | ROI: {display_percentage(self.roi)})"
-                ax[ax_counter].set_title(f"Portfolio Value Over Time {info}")
-                ax[ax_counter].legend(fontsize='small', loc='upper left')
+                ax.set_title(f"Portfolio Value Over Time {info}")
+                ax_main1.legend(fontsize='small', loc='upper left')
             else:
                 info = f"(Price Growth: {display_percentage(self.get_asset_growth(asset))})"
-                ax[ax_counter].set_title(f"Price Over Time [{asset}] {info}")
+                ax.set_title(f"Price Over Time [{asset}] {info}")
                 # Combine legends from both axes
-                lines, labels = ax[ax_counter].get_legend_handles_labels()
-                lines2, labels2 = ax2[ax_counter].get_legend_handles_labels()
+                lines, labels = ax_main1.get_legend_handles_labels()
+                lines2, labels2 = ax_main2.get_legend_handles_labels()
                 # Create custom legend handles for scatter plots with fixed size
                 custom_lines = [Line2D([0], [0], color='blue', alpha=0.3, marker='^', linestyle='None', markersize=10, label='Buy'),
                                 Line2D([0], [0], color='red', alpha=0.3, marker='v', linestyle='None', markersize=10, label='Sell')]
-                ax2[ax_counter].legend(lines + lines2 + custom_lines, labels + labels2 + ['BUY', 'SELL'], fontsize='small')
-            ax[ax_counter].grid(which="both")
-            ax[ax_counter].grid(which="minor", alpha=0.3)
-            ax[ax_counter].grid(which="major", alpha=0.5)
-            plt.setp(ax[ax_counter].get_xticklabels(), rotation=45, visible=True)
-            ax_counter += 1
-
+                ax_main2.legend(lines + lines2 + custom_lines, labels + labels2 + ['Buy', 'Sell'], fontsize='small')
+            # Create the narrow chart (bottom)
+            # But we only display it if there are signals for the asset
+            ax_narrow = fig.add_subplot(gs[1], sharex=ax_main1)
+            
+            if (asset in resampled_signals_df.columns) or (asset == "Total"):
+                datetime = resampled_signals_df.index
+                if asset != "Total":
+                    signals = resampled_signals_df[asset]
+                    # The next step is pointless if regarded alone.
+                    # However, when assessing Total, we need 2 different "signals".
+                    # In order to pass 2 different signals for each fill_between, we need 2 different variables.                    
+                    positive_signals = signals
+                    negative_signals = signals
+                else:
+                    # This allows to aggregate the sell and buy signals without cancelling each other.
+                    positive_signals = resampled_signals_df[resampled_signals_df > 0].sum(axis=1)
+                    negative_signals = resampled_signals_df[resampled_signals_df < 0].sum(axis=1)
+                    # To have a better visualization we also normalize the total signals
+                    # The Total signals will have a different scale than the assets,
+                    # but if the assets had the same scale as totals, it would be very difficult to see them.
+                    max_signal = max(positive_signals.abs().max(), negative_signals.abs().max())
+                    positive_signals = positive_signals / max_signal
+                    negative_signals = negative_signals / max_signal
+                lim = 1.1 
+                ax_narrow.set_ylim(-lim, lim)
+                ax_narrow.fill_between(datetime, positive_signals, where=positive_signals>0, color="blue", alpha=0.2, label="Buy Signals")
+                ax_narrow.fill_between(datetime, negative_signals, where=negative_signals<0, color="red", alpha=0.2, label="Sell Signals")
+                ax_narrow.legend(fontsize='small')
+            ax_narrow.grid(True)
+            ax_narrow.set_yticklabels([])
+            ax_narrow.xaxis.set_major_locator(mdates.AutoDateLocator())
+            ax_narrow.xaxis.set_minor_locator(AutoMinorLocator())
+            ax_narrow.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
+            ax_narrow.grid(which="both")
+            ax_narrow.grid(which="minor", alpha=0.3)
+            ax_narrow.grid(which="major", alpha=0.5)
+            # Adjust layout to remove spaces between subplots
+            plt.subplots_adjust(hspace=0)  # hspace=0 removes horizontal space between subplots
+            # Rotate x-axis tick labels by 15 degrees
+            plt.setp(ax_narrow.get_xticklabels(), rotation=15, ha='right')
+            
+        # Adjust layout to add space between main subplots
+        plt.subplots_adjust(hspace=0.4)
+        
         # Show the plot
         plt.show()
 
@@ -1375,9 +1431,10 @@ class Portfolio(Asset):
         ax.xaxis.set_minor_locator(AutoMinorLocator())
         # ax.yaxis.set_minor_locator(AutoMinorLocator())
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
         ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
-        plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
+        plt.setp(ax.get_xticklabels(), rotation=15, ha='right')
+        # plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
         ax.grid(which="both")
         ax.grid(which="minor", alpha=0.3)
         ax.grid(which="major", alpha=0.5)
@@ -1422,9 +1479,10 @@ class Portfolio(Asset):
         ax.xaxis.set_minor_locator(AutoMinorLocator())
         ax.yaxis.set_minor_locator(AutoMinorLocator())
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
         ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
-        plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
+        plt.setp(ax.get_xticklabels(), rotation=15, ha='right')
+        # plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
         ax.grid(which="both")
         ax.grid(which="minor", alpha=0.3)
         ax.grid(which="major", alpha=0.5)
@@ -1519,9 +1577,10 @@ class Portfolio(Asset):
         ax.xaxis.set_minor_locator(AutoMinorLocator())
         ax.yaxis.set_minor_locator(AutoMinorLocator())
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M"))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
         ax.yaxis.set_major_formatter(FuncFormatter(thousands))
-        plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
+        plt.setp(ax.get_xticklabels(), rotation=15, ha='right')
+        # plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
         ax.grid(which="both")
         ax.grid(which="minor", alpha=0.3)
         ax.grid(which="major", alpha=0.5)
