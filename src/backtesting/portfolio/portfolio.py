@@ -1217,6 +1217,8 @@ class Portfolio(Asset):
         fig, axs = plt.subplots(
             nrows=num_plots, ncols=1, figsize=(15, h_size), sharex=True
         )
+        # Ensure axs is always an array
+        axs = np.atleast_1d(axs)
         # For these we need equity and prices
         # Afterwards we will also need the transactions
         historical_equity = self.ledger_equity_datetime.copy()
@@ -1238,6 +1240,7 @@ class Portfolio(Asset):
             gs = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=ax.get_subplotspec(), height_ratios=[6, 2], hspace=0)
             ax.set_yticklabels([])
             ax.set_yticks([])
+            ax.grid(False)
             ax_main1 = fig.add_subplot(gs[0])
             # Ploting the equity of the asset
             datetime = resampled_historical_equity.index
@@ -1261,7 +1264,6 @@ class Portfolio(Asset):
             ax.set_xticklabels([])
             ax_main1.xaxis.set_major_locator(mdates.AutoDateLocator())
             ax_main1.xaxis.set_minor_locator(AutoMinorLocator())
-            ax_main1.yaxis.set_major_locator(mdates.AutoDateLocator())
             ax_main1.yaxis.set_minor_locator(AutoMinorLocator())
             # Hide x-axis labels and ticks on ax_main
             ax_main1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
@@ -1282,6 +1284,7 @@ class Portfolio(Asset):
                 ax_main2.set_ylabel(f"Price ({symbol})", color="purple")
                 # Color the y-axis tick labels
                 ax_main2.tick_params(axis='y', colors='purple')
+                ax_main2.grid(False)
                 # Format to thousands the y-axis only if the maximal value is higher than 1000
                 if prices.max() > 1000:
                     ax_main1.yaxis.set_major_formatter(FuncFormatter(thousands))
@@ -1358,8 +1361,8 @@ class Portfolio(Asset):
             ax_narrow.grid(which="major", alpha=0.5)
             # Adjust layout to remove spaces between subplots
             plt.subplots_adjust(hspace=0)  # hspace=0 removes horizontal space between subplots
-            # Rotate x-axis tick labels by 15 degrees
-            plt.setp(ax_narrow.get_xticklabels(), rotation=15, ha='right')
+            # Rotate x-axis tick labels by 20 degrees
+            plt.setp(ax_narrow.get_xticklabels(), rotation=-20, ha='left')
             
         # Adjust layout to add space between main subplots
         plt.subplots_adjust(hspace=0.4)
@@ -1433,8 +1436,7 @@ class Portfolio(Asset):
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
         ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
-        plt.setp(ax.get_xticklabels(), rotation=15, ha='right')
-        # plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
+        plt.setp(ax.get_xticklabels(), rotation=-20, ha='left')
         ax.grid(which="both")
         ax.grid(which="minor", alpha=0.3)
         ax.grid(which="major", alpha=0.5)
@@ -1481,8 +1483,7 @@ class Portfolio(Asset):
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
         ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
-        plt.setp(ax.get_xticklabels(), rotation=15, ha='right')
-        # plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
+        plt.setp(ax.get_xticklabels(), rotation=-20, ha='left')
         ax.grid(which="both")
         ax.grid(which="minor", alpha=0.3)
         ax.grid(which="major", alpha=0.5)
@@ -1579,8 +1580,7 @@ class Portfolio(Asset):
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
         ax.yaxis.set_major_formatter(FuncFormatter(thousands))
-        plt.setp(ax.get_xticklabels(), rotation=15, ha='right')
-        # plt.setp(ax.get_xticklabels(), rotation=45, visible=True)
+        plt.setp(ax.get_xticklabels(), rotation=-20, ha='left')
         ax.grid(which="both")
         ax.grid(which="minor", alpha=0.3)
         ax.grid(which="major", alpha=0.5)
