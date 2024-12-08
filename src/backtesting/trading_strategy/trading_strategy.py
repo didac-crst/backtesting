@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Literal, Union
 
 import pandas as pd
@@ -6,6 +6,7 @@ import numpy as np
 from tqdm import tqdm
 
 from backtesting import Portfolio
+from .record_objects import Signal
 
 @dataclass
 class TradingStrategies:
@@ -18,6 +19,7 @@ class TradingStrategies:
     triggering_feature: str
     threshold_buy: float
     threshold_sell: float
+    signals: list[str] = field(default_factory=list)
     initial_equity: Optional[float] = None
     quote_ticket_amount: float = 100.0
     maximal_assets_to_buy: int = 5
@@ -225,6 +227,42 @@ class TradingStrategies:
         current_prices.set_index('base', inplace=True)
         return current_prices[self.triggering_feature]
     
+    def record_single_signal(self, timestamp: int, symbol: str, trade_signal: str, value_signal: float) -> None:
+        """
+        Record the raw signals of the strategy into the signals list.
+
+        """
+        signal = Signal(
+            timestamp=timestamp,
+            symbol=symbol,
+            trade_signal=trade_signal,
+            value_signal=np.float32(value_signal)
+        )
+        self.signals.append(signal)
+    
+    def record_assets_signals(self, assets_signals: pd.Series, trade_signal: str) -> None:
+        """
+        Record the raw signals of the strategy into the ledger.
+
+        """
+        timestamp = self.current_timestamp
+        for symbol, value_signal in assets_signals.items():
+            self.record_single_signal(
+                timestamp=timestamp,
+                symbol=symbol,
+                trade_signal=trade_signal,
+                value_signal=value_signal,
+            )
+    
+    @property
+    def signals_df(self) -> pd.DataFrame:
+        """
+        Convert the signals list to a DataFrame.
+
+        """
+        signals_df = pd.DataFrame([signal.__dict__ for signal in self.signals])
+        return signals_df
+    
     @property
     def current_assets_to_buy(self) -> list:
         """
@@ -233,8 +271,14 @@ class TradingStrategies:
         When buying we have to consider a maximal number of assets to buy as there is a limited amount of cash.
 
         """
+        trade_signal = "BUY"
         current_triggers = self.current_triggers
         candidates = current_triggers[current_triggers > self.threshold_buy]
+        # We record the buy-signals for the assets that are above the threshold.
+        self.record_assets_signals(
+            assets_signals=candidates,
+            trade_signal=trade_signal
+        )
         # As we want to buy the assets with the highest values, we sort the candidates in descending order.
         candidates.sort_values(ascending=False, inplace=True)
         return candidates[:self.maximal_assets_to_buy].index.tolist()
@@ -245,8 +289,14 @@ class TradingStrategies:
         Get the assets to sell.
 
         """
+        trade_signal = "SELL"
         current_triggers = self.current_triggers
         candidates = current_triggers[current_triggers < self.threshold_sell]
+        # We record the sell-signals for the assets that are below the threshold.
+        self.record_assets_signals(
+            assets_signals=candidates,
+            trade_signal=trade_signal
+        )
         # No need to sort the candidates as we are returning all the assets under the threshold.
         return candidates.index.tolist()
     
@@ -300,7 +350,15 @@ class TradingStrategies:
                 # We sell the asset only if we own the asset.
                 if asset in PF.positive_balance_assets_list:
                     PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
-        
+    
+    def dispatch_signals_in_portfolios(self) -> None:
+        """
+        In order to make the signals available in the Portfolios, we dispatch the signals_df into the Portfolios.
+
+        """
+        for PF in self.Portfolios:
+            PF.signals_df = self.signals_df
+
     def run_strategy(self) -> None:
         """
         Run the strategy.
@@ -315,3 +373,4 @@ class TradingStrategies:
                 self.trade_on_signals()
                 self.increase_timestamp()
                 pbar.update(1)
+        self.dispatch_signals_in_portfolios()

@@ -55,6 +55,7 @@ class Portfolio(Asset):
         # We need to keep track of the properties that have been calculated
         self._properties_evolution_id = dict() # This dictionary will store the evolution_id of each property
         self._properties_cached = dict() # This dictionary will store the cached value of each property
+        self.signals_df: Optional[pd.DataFrame] = None # This will be automatically provided by the strategy after running the backtest
     
     def new_transaction_id(self) -> int:
         """
