@@ -6,7 +6,6 @@ import numpy as np
 from tqdm import tqdm
 
 from backtesting import Portfolio
-from .record_objects import Signal
 
 @dataclass
 class TradingStrategies:
@@ -178,7 +177,9 @@ class TradingStrategies:
         PF = Portfolio(
             symbol=self.portfolio_symbol,
             commission_trade=self.commission_trade,
-            commission_transfer=self.commission_transfer
+            commission_transfer=self.commission_transfer,
+            threshold_buy=self.threshold_buy,
+            threshold_sell=self.threshold_sell,
         )
         PF.set_verbosity(verbosity_type='silent')
         # If we provide a dictionary, we use the assets and their amounts.
@@ -217,6 +218,14 @@ class TradingStrategies:
             PF.update_prices(prices=prices, timestamp=self.current_timestamp)
     
     @property
+    def volatility(self) -> pd.Series:
+        """
+        Calculate the volatility of the prices.
+
+        """
+        return self.historical_prices
+    
+    @property
     def current_triggers(self) -> pd.Series:
         """
         Property to get the current triggers of the strategy for all assets on the current timestamp.
@@ -227,32 +236,41 @@ class TradingStrategies:
         current_prices.set_index('base', inplace=True)
         return current_prices[self.triggering_feature]
     
-    def record_single_signal(self, timestamp: int, symbol: str, trade_signal: str, value_signal: float) -> None:
-        """
-        Record the raw signals of the strategy into the signals list.
+    # def record_single_signal(self, timestamp: int, symbol: str, trade_signal: str, value_signal: float) -> None:
+    #     """
+    #     Record the raw signals of the strategy into the signals list.
 
-        """
-        signal = Signal(
-            timestamp=timestamp,
-            symbol=symbol,
-            trade_signal=trade_signal,
-            value_signal=np.float32(value_signal)
-        )
-        self.signals.append(signal)
+    #     """
+    #     signal = Signal(
+    #         timestamp=timestamp,
+    #         symbol=symbol,
+    #         trade_signal=trade_signal,
+    #         value_signal=np.float32(value_signal)
+    #     )
+    #     self.signals.append(signal)
     
-    def record_assets_signals(self, assets_signals: pd.Series, trade_signal: str) -> None:
-        """
-        Record the raw signals of the strategy into the ledger.
+    # def record_assets_signals(self, assets_signals: pd.Series, trade_signal: str) -> None:
+    #     """
+    #     Record the raw signals of the strategy into the ledger.
 
-        """
-        timestamp = self.current_timestamp
-        for symbol, value_signal in assets_signals.items():
-            self.record_single_signal(
-                timestamp=timestamp,
-                symbol=symbol,
-                trade_signal=trade_signal,
-                value_signal=value_signal,
-            )
+    #     """
+    #     timestamp = self.current_timestamp
+    #     for symbol, value_signal in assets_signals.items():
+    #         self.record_single_signal(
+    #             timestamp=timestamp,
+    #             symbol=symbol,
+    #             trade_signal=trade_signal,
+    #             value_signal=value_signal,
+    #         )
+    
+    # @property
+    # def signals_df(self) -> pd.DataFrame:
+    #     """
+    #     Convert the signals list to a DataFrame.
+
+    #     """
+    #     signals_df = pd.DataFrame([signal.__dict__ for signal in self.signals])
+    #     return signals_df
     
     @property
     def signals_df(self) -> pd.DataFrame:
@@ -260,7 +278,13 @@ class TradingStrategies:
         Convert the signals list to a DataFrame.
 
         """
-        signals_df = pd.DataFrame([signal.__dict__ for signal in self.signals])
+        signals_df = self.historical_prices[['base', 'label_returns']].copy()
+        signals_df.reset_index(inplace=True)
+        signals_df.rename(columns={'timestamp_id': 'timestamp', 'base': 'symbol', 'label_returns': 'value_signal'}, inplace=True)
+        signals_df['trade_signal'] = 'HOLD'
+        signals_df.loc[signals_df['value_signal'] >= self.threshold_buy, 'trade_signal'] = 'BUY'
+        signals_df.loc[signals_df['value_signal'] <= self.threshold_sell, 'trade_signal'] = 'SELL'
+        signals_df['value_signal'] = signals_df['value_signal'].astype(np.float32)
         return signals_df
     
     @property
@@ -271,14 +295,14 @@ class TradingStrategies:
         When buying we have to consider a maximal number of assets to buy as there is a limited amount of cash.
 
         """
-        trade_signal = "BUY"
+        # trade_signal = "BUY"
         current_triggers = self.current_triggers
         candidates = current_triggers[current_triggers > self.threshold_buy]
-        # We record the buy-signals for the assets that are above the threshold.
-        self.record_assets_signals(
-            assets_signals=candidates,
-            trade_signal=trade_signal
-        )
+        # # We record the buy-signals for the assets that are above the threshold.
+        # self.record_assets_signals(
+        #     assets_signals=candidates,
+        #     trade_signal=trade_signal
+        # )
         # As we want to buy the assets with the highest values, we sort the candidates in descending order.
         candidates.sort_values(ascending=False, inplace=True)
         return candidates[:self.maximal_assets_to_buy].index.tolist()
@@ -289,14 +313,14 @@ class TradingStrategies:
         Get the assets to sell.
 
         """
-        trade_signal = "SELL"
+        # trade_signal = "SELL"
         current_triggers = self.current_triggers
         candidates = current_triggers[current_triggers < self.threshold_sell]
         # We record the sell-signals for the assets that are below the threshold.
-        self.record_assets_signals(
-            assets_signals=candidates,
-            trade_signal=trade_signal
-        )
+        # self.record_assets_signals(
+        #     assets_signals=candidates,
+        #     trade_signal=trade_signal
+        # )
         # No need to sort the candidates as we are returning all the assets under the threshold.
         return candidates.index.tolist()
     

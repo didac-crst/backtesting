@@ -41,6 +41,8 @@ class Portfolio(Asset):
     transaction_id: int = 0
     displayed_assets: int = 15
     time_chart_resolution: int = 400
+    threshold_buy: float = 0.0 # This is the signal threshold to buy an asset - Only for display purposes
+    threshold_sell: float = 0.0 # This is the signal threshold to sell an asset - Only for display purposes
 
     # Portfolio internal methods ------------------------------------------------
 
@@ -1230,9 +1232,11 @@ class Portfolio(Asset):
         # We normalize the signals among all the assets
         # Then all assets will have the same scale
         # First we get the absolute max value
-        max_signal = resampled_signals_df.abs().max().max()
+        max_signal_ratio = resampled_signals_df.abs().max().max()
         # Then we normalize the signals
-        resampled_signals_df = resampled_signals_df / max_signal
+        resampled_signals_df = resampled_signals_df / max_signal_ratio
+        threshold_buy = self.threshold_buy / max_signal_ratio
+        threshold_sell = self.threshold_sell / max_signal_ratio
         for i, asset in enumerate(assets_list):
             ax = axs[i]
             # Create a GridSpec with 2 rows and 1 column
@@ -1333,23 +1337,31 @@ class Portfolio(Asset):
                     signals = resampled_signals_df[asset]
                     # The next step is pointless if regarded alone.
                     # However, when assessing Total, we need 2 different "signals".
-                    # In order to pass 2 different signals for each fill_between, we need 2 different variables.                    
-                    positive_signals = signals
-                    negative_signals = signals
+                    # In order to pass 2 different signals for each fill_between, we need 2 different variables.         
+                    positive_signals = signals.where(signals >= threshold_buy, np.nan)
+                    negative_signals = signals.where(signals <= threshold_sell, np.nan)
+                    hold_signals = signals.where((signals < threshold_buy) & (signals > threshold_sell), np.nan)
+                    yellow = "#EEEE00"
+                    ax_narrow.fill_between(datetime, hold_signals, where=hold_signals>0, color=yellow, alpha=0.5)
+                    ax_narrow.fill_between(datetime, hold_signals, where=hold_signals<0, color=yellow, alpha=0.5)
+                    threshold_positive = threshold_buy
+                    threshold_negative = threshold_sell
                 else:
                     # This allows to aggregate the sell and buy signals without cancelling each other.
-                    positive_signals = resampled_signals_df[resampled_signals_df > 0].sum(axis=1)
-                    negative_signals = resampled_signals_df[resampled_signals_df < 0].sum(axis=1)
+                    positive_signals = resampled_signals_df[resampled_signals_df >= self.threshold_buy].sum(axis=1)
+                    negative_signals = resampled_signals_df[resampled_signals_df <= self.threshold_sell].sum(axis=1)
                     # To have a better visualization we also normalize the total signals
                     # The Total signals will have a different scale than the assets,
                     # but if the assets had the same scale as totals, it would be very difficult to see them.
                     max_signal = max(positive_signals.abs().max(), negative_signals.abs().max())
                     positive_signals = positive_signals / max_signal
                     negative_signals = negative_signals / max_signal
+                    threshold_positive = 0
+                    threshold_negative = 0
                 lim = 1.1 
                 ax_narrow.set_ylim(-lim, lim)
-                ax_narrow.fill_between(datetime, positive_signals, where=positive_signals>0, color="blue", alpha=0.2, label="Buy Signals")
-                ax_narrow.fill_between(datetime, negative_signals, where=negative_signals<0, color="red", alpha=0.2, label="Sell Signals")
+                ax_narrow.fill_between(datetime, positive_signals, where=positive_signals>threshold_positive, color="blue", alpha=0.2, label="Buy Signals")
+                ax_narrow.fill_between(datetime, negative_signals, where=negative_signals<threshold_negative, color="red", alpha=0.2, label="Sell Signals")
                 ax_narrow.legend(fontsize='small')
             ax_narrow.grid(True)
             ax_narrow.set_yticklabels([])
