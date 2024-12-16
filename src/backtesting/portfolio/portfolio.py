@@ -922,12 +922,40 @@ class Portfolio(Asset):
         """
         signals_df = self.signals_pivot_df.copy()
         if signals_df is not None:
-            # It could happen that some owned or traded assets are not in the signals DataFrame
-            # We need to make sure that these columns are considered (or we get an error in the next step)
-            columns_to_display = [c for c in signals_df.columns if c in self.assets_traded_list]
+            # We display only the assets that are traded
+            # columns_to_display = [c for c in signals_df.columns if c in self.assets_traded_list]
+            columns_to_display = self.assets_traded_list
             signals_df = signals_df[columns_to_display].copy()
             signals_df["DateTime"] = pd.to_datetime(signals_df.index, unit="s")
             return signals_df.set_index("DateTime", drop=True)
+        
+    @property
+    @check_property_update
+    def volatility_pivot_df(self) -> pd.DataFrame:
+        """
+        Property to get the signals DataFrame as a pivot table.
+
+        """
+        volatility_df = self.volatility_df.copy()
+        if volatility_df is not None:
+            volatility_pivot_df = volatility_df.pivot_table(index='timestamp', columns='symbol', values='volatility')
+            return volatility_pivot_df
+        
+    @property
+    @check_property_update
+    def volatility_displayable(self) -> pd.DataFrame:
+        """
+        Property to get the volatility DataFrame as a pivot table.
+
+        """
+        volatility_df = self.volatility_pivot_df.copy()
+        if volatility_df is not None:
+            # We display only the assets that are traded
+            # columns_to_display = [c for c in signals_df.columns if c in self.assets_traded_list]
+            columns_to_display = self.assets_traded_list
+            volatility_df = volatility_df[columns_to_display].copy()
+            volatility_df["DateTime"] = pd.to_datetime(volatility_df.index, unit="s")
+            return volatility_df.set_index("DateTime", drop=True)
 
     @property
     @check_property_update
@@ -1237,6 +1265,10 @@ class Portfolio(Asset):
         resampled_signals_df = resampled_signals_df / max_signal_ratio
         threshold_buy = self.threshold_buy / max_signal_ratio
         threshold_sell = self.threshold_sell / max_signal_ratio
+        # We get the volatility of the returns
+        volatility_df = self.volatility_displayable.copy()
+        resampled_volatility_df = self.resample_data(volatility_df, agg_type='mean')
+        max_volatility = resampled_volatility_df.abs().max().max()
         for i, asset in enumerate(assets_list):
             ax = axs[i]
             # Create a GridSpec with 2 rows and 1 column
@@ -1329,8 +1361,7 @@ class Portfolio(Asset):
                 ax_main2.legend(lines + lines2 + custom_lines, labels + labels2 + ['Buy', 'Sell'], fontsize='small')
             # Create the narrow chart (bottom)
             # But we only display it if there are signals for the asset
-            ax_narrow = fig.add_subplot(gs[1], sharex=ax_main1)
-            
+            ax_narrow1 = fig.add_subplot(gs[1], sharex=ax_main1)
             if (asset in resampled_signals_df.columns) or (asset == "Total"):
                 datetime = resampled_signals_df.index
                 if asset != "Total":
@@ -1342,10 +1373,16 @@ class Portfolio(Asset):
                     negative_signals = signals.where(signals <= threshold_sell, np.nan)
                     hold_signals = signals.where((signals < threshold_buy) & (signals > threshold_sell), np.nan)
                     yellow = "#EEEE00"
-                    ax_narrow.fill_between(datetime, hold_signals, where=hold_signals>0, color=yellow, alpha=0.5)
-                    ax_narrow.fill_between(datetime, hold_signals, where=hold_signals<0, color=yellow, alpha=0.5)
+                    ax_narrow1.fill_between(datetime, hold_signals, where=hold_signals>0, color=yellow, alpha=0.5)
+                    ax_narrow1.fill_between(datetime, hold_signals, where=hold_signals<0, color=yellow, alpha=0.5)
                     threshold_positive = threshold_buy
                     threshold_negative = threshold_sell
+                    # Display the volatility
+                    ax_narrow2 = ax_narrow1.twinx()
+                    volatilities = resampled_volatility_df[asset]
+                    ax_narrow2.plot(datetime, volatilities, color="black", label="Volatility", alpha=0.5)
+                    ax_narrow2.set_ylim(0, max_volatility)
+                    ax_narrow2.set_ylabel("Volatility")
                 else:
                     # This allows to aggregate the sell and buy signals without cancelling each other.
                     positive_signals = resampled_signals_df[resampled_signals_df >= self.threshold_buy].sum(axis=1)
@@ -1359,22 +1396,22 @@ class Portfolio(Asset):
                     threshold_positive = 0
                     threshold_negative = 0
                 lim = 1.1 
-                ax_narrow.set_ylim(-lim, lim)
-                ax_narrow.fill_between(datetime, positive_signals, where=positive_signals>threshold_positive, color="blue", alpha=0.2, label="Buy Signals")
-                ax_narrow.fill_between(datetime, negative_signals, where=negative_signals<threshold_negative, color="red", alpha=0.2, label="Sell Signals")
-                ax_narrow.legend(fontsize='small')
-            ax_narrow.grid(True)
-            ax_narrow.set_yticklabels([])
-            ax_narrow.xaxis.set_major_locator(mdates.AutoDateLocator())
-            ax_narrow.xaxis.set_minor_locator(AutoMinorLocator())
-            ax_narrow.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
-            ax_narrow.grid(which="both")
-            ax_narrow.grid(which="minor", alpha=0.3)
-            ax_narrow.grid(which="major", alpha=0.5)
+                ax_narrow1.set_ylim(-lim, lim)
+                ax_narrow1.fill_between(datetime, positive_signals, where=positive_signals>threshold_positive, color="blue", alpha=0.2, label="Buy Signals")
+                ax_narrow1.fill_between(datetime, negative_signals, where=negative_signals<threshold_negative, color="red", alpha=0.2, label="Sell Signals")
+                ax_narrow1.legend(fontsize='small')
+            ax_narrow1.grid(True)
+            ax_narrow1.set_yticklabels([])
+            ax_narrow1.xaxis.set_major_locator(mdates.AutoDateLocator())
+            ax_narrow1.xaxis.set_minor_locator(AutoMinorLocator())
+            ax_narrow1.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
+            ax_narrow1.grid(which="both")
+            ax_narrow1.grid(which="minor", alpha=0.3)
+            ax_narrow1.grid(which="major", alpha=0.5)
             # Adjust layout to remove spaces between subplots
             plt.subplots_adjust(hspace=0)  # hspace=0 removes horizontal space between subplots
             # Rotate x-axis tick labels by 20 degrees
-            plt.setp(ax_narrow.get_xticklabels(), rotation=-20, ha='left')
+            plt.setp(ax_narrow1.get_xticklabels(), rotation=-20, ha='left')
             
         # Adjust layout to add space between main subplots
         plt.subplots_adjust(hspace=0.4)

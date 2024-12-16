@@ -218,12 +218,15 @@ class TradingStrategies:
             PF.update_prices(prices=prices, timestamp=self.current_timestamp)
     
     @property
-    def volatility(self) -> pd.Series:
+    def volatility_df(self) -> pd.Series:
         """
         Calculate the volatility of the prices.
 
         """
-        return self.historical_prices
+        volatility_df = self.historical_prices[['base', 'volatility']].copy()
+        volatility_df.reset_index(inplace=True)
+        volatility_df.rename(columns={'timestamp_id': 'timestamp', 'base': 'symbol'}, inplace=True)
+        return volatility_df
     
     @property
     def current_triggers(self) -> pd.Series:
@@ -235,42 +238,6 @@ class TradingStrategies:
         current_prices = historical_prices[historical_prices.index == self.current_timestamp].copy()
         current_prices.set_index('base', inplace=True)
         return current_prices[self.triggering_feature]
-    
-    # def record_single_signal(self, timestamp: int, symbol: str, trade_signal: str, value_signal: float) -> None:
-    #     """
-    #     Record the raw signals of the strategy into the signals list.
-
-    #     """
-    #     signal = Signal(
-    #         timestamp=timestamp,
-    #         symbol=symbol,
-    #         trade_signal=trade_signal,
-    #         value_signal=np.float32(value_signal)
-    #     )
-    #     self.signals.append(signal)
-    
-    # def record_assets_signals(self, assets_signals: pd.Series, trade_signal: str) -> None:
-    #     """
-    #     Record the raw signals of the strategy into the ledger.
-
-    #     """
-    #     timestamp = self.current_timestamp
-    #     for symbol, value_signal in assets_signals.items():
-    #         self.record_single_signal(
-    #             timestamp=timestamp,
-    #             symbol=symbol,
-    #             trade_signal=trade_signal,
-    #             value_signal=value_signal,
-    #         )
-    
-    # @property
-    # def signals_df(self) -> pd.DataFrame:
-    #     """
-    #     Convert the signals list to a DataFrame.
-
-    #     """
-    #     signals_df = pd.DataFrame([signal.__dict__ for signal in self.signals])
-    #     return signals_df
     
     @property
     def signals_df(self) -> pd.DataFrame:
@@ -295,14 +262,8 @@ class TradingStrategies:
         When buying we have to consider a maximal number of assets to buy as there is a limited amount of cash.
 
         """
-        # trade_signal = "BUY"
         current_triggers = self.current_triggers
         candidates = current_triggers[current_triggers > self.threshold_buy]
-        # # We record the buy-signals for the assets that are above the threshold.
-        # self.record_assets_signals(
-        #     assets_signals=candidates,
-        #     trade_signal=trade_signal
-        # )
         # As we want to buy the assets with the highest values, we sort the candidates in descending order.
         candidates.sort_values(ascending=False, inplace=True)
         return candidates[:self.maximal_assets_to_buy].index.tolist()
@@ -313,14 +274,8 @@ class TradingStrategies:
         Get the assets to sell.
 
         """
-        # trade_signal = "SELL"
         current_triggers = self.current_triggers
         candidates = current_triggers[current_triggers < self.threshold_sell]
-        # We record the sell-signals for the assets that are below the threshold.
-        # self.record_assets_signals(
-        #     assets_signals=candidates,
-        #     trade_signal=trade_signal
-        # )
         # No need to sort the candidates as we are returning all the assets under the threshold.
         return candidates.index.tolist()
     
@@ -377,11 +332,12 @@ class TradingStrategies:
     
     def dispatch_signals_in_portfolios(self) -> None:
         """
-        In order to make the signals available in the Portfolios, we dispatch the signals_df into the Portfolios.
+        In order to make the signals available in the Portfolios, we dispatch the signals_df and volatility_df in the Portfolios.
 
         """
         for PF in self.Portfolios:
             PF.signals_df = self.signals_df
+            PF.volatility_df = self.volatility_df
 
     def run_strategy(self) -> None:
         """
