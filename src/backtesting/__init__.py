@@ -1,2 +1,2 @@
 from .portfolio import Portfolio
-from .trading_strategy import TradingStrategies 
+from .trading_strategy import TradingStrategy, MultiPeriodBacktest

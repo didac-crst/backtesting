@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import os
 from typing import Optional, Literal, Union
 
 import pandas as pd
@@ -8,7 +9,7 @@ from tqdm import tqdm
 from backtesting import Portfolio
 
 @dataclass
-class TradingStrategies:
+class TradingStrategy:
     """
     Dataclass defining the basic structure of a strategy.
 
@@ -176,6 +177,12 @@ class TradingStrategies:
             Portfolio: Portfolio object.
 
         """
+        # We need to make a copy of the initial assets list as we will modify it for the other portfolios.
+        initial_assets_list = self.initial_assets_list.copy() if self.initial_assets_list else None
+        if isinstance(initial_assets_list, dict):
+            initial_equity = None
+        elif self.initial_equity:
+            initial_equity = self.initial_equity.copy()
         PF = Portfolio(
             symbol=self.portfolio_symbol,
             commission_trade=self.commission_trade,
@@ -186,15 +193,15 @@ class TradingStrategies:
         PF.set_verbosity(verbosity_type='silent')
         # If we provide a dictionary, we use the assets and their amounts.
         if isinstance(self.initial_assets_list, dict):
-            if self.initial_equity:
+            if initial_equity:
                 raise ValueError("You cannot provide an initial equity with initial assets list as a dictionary.")
             # We calculate the initial equity based on the assets and their amounts.
-            self.initial_equity = pd.Series(self.initial_assets_list).sum()
-            PF.deposit(amount=self.initial_equity, timestamp=self.initial_timestamp)
+            initial_equity = pd.Series(initial_assets_list).sum()
+            PF.deposit(amount=initial_equity, timestamp=self.initial_timestamp)
             self.buy_defined_asset(PF)
         # If we provide a list or nothing, we use the assets and their weights.
         else:
-            PF.deposit(amount=self.initial_equity, timestamp=self.initial_timestamp)
+            PF.deposit(amount=initial_equity, timestamp=self.initial_timestamp)
             self.buy_random_asset(PF)
         # previous_amount_factor = {asset: 0 for asset in PF.assets_list}
         # print(previous_amount_factor)
@@ -377,3 +384,161 @@ class TradingStrategies:
                 self.increase_timestamp()
                 pbar.update(1)
         self.dispatch_signals_in_portfolios()
+    
+    @property
+    def performance(self) -> list[dict]:
+        """
+        Get the performance of the strategy for all the Portfolios.
+
+        """
+        performance_list = []
+        for PF in self.Portfolios:
+            perfo_dict = dict(
+                name = PF.name,
+                timerange = PF.timerange,
+                investment = PF.invested_capital,
+                transactions = PF.transactions_count(),
+                traded = PF.transactions_sum(),
+                gains = PF.gains,
+                roi = PF.roi,
+                commissions = PF.total_commissions,
+                hold_gains = PF.hold_gains,
+                hold_roi = PF.hold_roi,
+            )
+            performance_list.append(perfo_dict)
+        return performance_list
+
+    @property
+    def performance_df(self) -> pd.DataFrame:
+        """
+        Get the performance of the strategy for all the Portfolios as a DataFrame.
+
+        """
+        performace_df = pd.DataFrame(self.performance)
+        return performace_df
+
+@dataclass
+class MultiPeriodBacktest:
+    """
+    Dataclass that runs a multi-period backtest on a given strategy.
+
+    """
+
+    data_path: str
+    triggering_feature: str
+    threshold_buy: float
+    threshold_sell: float
+    number_timeperiods: Optional[int] = None
+    time_granularity: Optional[int] = None
+    signals: list[str] = field(default_factory=list)
+    initial_equity: Optional[float] = None
+    quote_ticket_amount: float = 100.0
+    maximal_assets_to_buy: int = 5
+    commission_trade: float = 0.00075
+    commission_transfer: float = 0.0
+    portfolio_symbol: str = "USDT"
+    description: Optional['str'] = None
+    initial_assets_list: Optional[Union[list,dict]] = None
+    minimal_liquidity_ratio: float = 0.05
+    maximal_equity_per_asset_ratio: float = 0.1
+    number_of_portfolios: int = 1
+    max_volatility_to_buy: Optional[float] = None
+    max_volatility_to_hold: Optional[float] = None
+    
+    def __post_init__(self):
+        self.backtest_performed = False
+        self.get_files_list()
+    
+    def get_files_list(self) -> None:
+        """
+        Get the list of files in the data path.
+
+        """
+        self.files_list = os.listdir(self.data_path)
+        
+    def read_historical_prices(self, file: str) -> pd.DataFrame:
+        """
+        Read the historical prices from a file.
+
+        """
+        historical_prices = pd.read_feather(os.path.join(self.data_path, file))
+        # Reduce the granularity of the historical prices.
+        if self.time_granularity:
+            historical_prices = historical_prices[historical_prices['timestamp_id'] % self.time_granularity == 0]
+        return historical_prices
+        
+    def TradingStrategy(self, historical_prices: pd.DataFrame) -> TradingStrategy:
+        """
+        Create the TradingStrategy object.
+
+        """
+        TradingStrategy_obj = TradingStrategy(
+            historical_prices=historical_prices,
+            triggering_feature=self.triggering_feature,
+            threshold_buy=self.threshold_buy,
+            threshold_sell=self.threshold_sell,
+            signals=self.signals,
+            initial_equity=self.initial_equity,
+            quote_ticket_amount=self.quote_ticket_amount,
+            maximal_assets_to_buy=self.maximal_assets_to_buy,
+            commission_trade=self.commission_trade,
+            commission_transfer=self.commission_transfer,
+            portfolio_symbol=self.portfolio_symbol,
+            description=self.description,
+            initial_assets_list=self.initial_assets_list,
+            minimal_liquidity_ratio=self.minimal_liquidity_ratio,
+            maximal_equity_per_asset_ratio=self.maximal_equity_per_asset_ratio,
+            number_of_portfolios=self.number_of_portfolios,
+            max_volatility_to_buy=self.max_volatility_to_buy,
+            max_volatility_to_hold=self.max_volatility_to_hold
+        )
+        return TradingStrategy_obj
+    
+    def _run_backtest(self) -> None:
+        """
+        Run the backtest.
+
+        """
+        performance_df = pd.DataFrame()
+        files_list = self.files_list
+        if self.number_timeperiods:
+            files_list = files_list[:self.number_timeperiods]
+        if not self.backtest_performed:
+            print(f"Running the backtest - Timeperiods: {len(files_list)}")
+            counter = 0
+            for file in files_list:
+                print(f"Cycle {counter+1} - File: {file}")
+                historical_prices = self.read_historical_prices(file)
+                TradingStrategy_obj = self.TradingStrategy(historical_prices=historical_prices)
+                TradingStrategy_obj.run_strategy()
+                period_performance = TradingStrategy_obj.performance_df
+                period_performance['file'] = file
+                performance_df = pd.concat([performance_df, period_performance], ignore_index=True)
+                counter += 1
+            self.backtest_performed = True
+            self._performance = performance_df
+        else:
+            print("The backtest has already been performed - No need to run it again.")
+    
+    
+    @property
+    def performance(self) -> pd.DataFrame:
+        """
+        Get the performance of the backtest.
+
+        """
+        if not self.backtest_performed:
+            self._run_backtest()
+        return self._performance
+    
+    @property
+    def performance_overview(self) -> pd.DataFrame:
+        """
+        Get the performance overview of the backtest.
+
+        """
+        values_columns = ['transactions', 'traded', 'gains', 'roi', 'commissions', 'hold_gains', 'hold_roi']
+        agg_columns = ['mean', 'std']
+        performance_df = self.performance
+        performace_pivot = performance_df.pivot_table(index='file', values=values_columns, aggfunc=agg_columns)
+        return performace_pivot
