@@ -910,7 +910,7 @@ class Portfolio(Asset):
         """
         signals_df = self.signals_df.copy()
         if signals_df is not None:
-            signals_pivot_df = signals_df.pivot_table(index='timestamp', columns='symbol', values='value_signal')
+            signals_pivot_df = signals_df.pivot_table(index='timestamp', columns='symbol', values='value_signal', observed=True)
             return signals_pivot_df
 
     @property
@@ -938,7 +938,7 @@ class Portfolio(Asset):
         """
         volatility_df = self.volatility_df.copy()
         if volatility_df is not None:
-            volatility_pivot_df = volatility_df.pivot_table(index='timestamp', columns='symbol', values='volatility')
+            volatility_pivot_df = volatility_df.pivot_table(index='timestamp', columns='symbol', values='volatility', observed=True)
             return volatility_pivot_df
         
     @property

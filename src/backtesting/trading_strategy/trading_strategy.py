@@ -30,6 +30,8 @@ class TradingStrategies:
     minimal_liquidity_ratio: float = 0.05
     maximal_equity_per_asset_ratio: float = 0.1
     number_of_portfolios: int = 1
+    max_volatility_to_buy: Optional[float] = None
+    max_volatility_to_hold: Optional[float] = None
 
     def __post_init__(self):
         self.Portfolios = []
@@ -218,6 +220,15 @@ class TradingStrategies:
             PF.update_prices(prices=prices, timestamp=self.current_timestamp)
     
     @property
+    def current_volatilities(self) -> pd.Series:
+        """
+        Calculate the volatility of the prices.
+
+        """
+        volatility = self.historical_prices.loc[self.current_timestamp].set_index('base')['volatility']
+        return volatility
+    
+    @property
     def volatility_df(self) -> pd.Series:
         """
         Calculate the volatility of the prices.
@@ -313,22 +324,34 @@ class TradingStrategies:
 
         """
         self.ensure_liquidity()
+        volatilities = self.current_volatilities
         for PF in self.Portfolios:
             # ASSETS TO BUY >>>>>>>>>>>
             for asset in self.current_assets_to_buy:
-                # We buy the asset only if we have enough cash plus we still have enough liquidity.
-                # The minimal threshold liquidity ensures to still have some cash after buying the asset.
-                mininmal_threshold_liquidity = self.minimal_liquidity_ratio * PF.equity_value / 100
-                if PF.balance > (self.quote_ticket_amount + mininmal_threshold_liquidity):
-                    # We buy the asset only if the maximal equity per asset ratio is not reached.
-                    asset_equity_ratio = PF.get_value(symbol=asset, quote='USDT') / PF.equity_value
-                    if asset_equity_ratio < self.maximal_equity_per_asset_ratio:
-                        PF.buy(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
-            # ASSETS TO SELL >>>>>>>>>>>
+                volatility = volatilities[volatilities.index == asset].values[0]
+                # We buy the asset only if the volatility is below the threshold.
+                if (volatility < self.max_volatility_to_buy) or (self.max_volatility_to_buy is None):
+                    # We buy the asset only if we have enough cash plus we still have enough liquidity.
+                    # The minimal threshold liquidity ensures to still have some cash after buying the asset.
+                    mininmal_threshold_liquidity = self.minimal_liquidity_ratio * PF.equity_value / 100
+                    if PF.balance > (self.quote_ticket_amount + mininmal_threshold_liquidity):
+                        # We buy the asset only if the maximal equity per asset ratio is not reached.
+                        asset_equity_ratio = PF.get_value(symbol=asset, quote='USDT') / PF.equity_value
+                        if asset_equity_ratio < self.maximal_equity_per_asset_ratio:
+                            PF.buy(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
+            # ASSETS TO SELL IF SIGNALS >>>>>>>>>>>
             for asset in self.current_assets_to_sell:
                 # We sell the asset only if we own the asset.
                 if asset in PF.positive_balance_assets_list:
-                    PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
+                    msg = f"Selling asset based on signal."
+                    PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=msg)
+            # ASSETS TO SELL IF VOLATILITY TOO HIGH >>>>>>>>>>>
+            for asset in PF.positive_balance_assets_list:
+                volatility = volatilities[volatilities.index == asset].values[0]
+                # We sell the asset only if the volatility is above the threshold.
+                if (volatility > self.max_volatility_to_hold):
+                    msg = f"Selling asset as the volatility is too high: {volatility:.4f}."
+                    PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=msg)
     
     def dispatch_signals_in_portfolios(self) -> None:
         """
