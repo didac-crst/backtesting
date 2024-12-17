@@ -1,3 +1,5 @@
+import itertools 
+import random
 from time import time
 from typing import Optional, Callable, Union
 
@@ -70,6 +72,16 @@ def get_random_name() -> str:
     fake = Faker()
     name = fake.name().replace(' ', '_').replace('.', '').lower()
     return name
+
+def get_coloured_markers() -> list[tuple[str, str]]:
+    """
+    Function to get a list of coloured markers for plotting.
+
+    """
+    colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+    markers = ['o', 's', '^', 'v', 'D', '*', '+', 'x', 'p', 'h']
+    combinations = list(itertools.product(markers, colors))
+    return combinations
 
 # Display functions -----------------------------------------------------------
 

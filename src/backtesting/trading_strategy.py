@@ -5,10 +5,12 @@ from typing import Optional, Literal, Union
 
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.ticker import AutoMinorLocator
 from tqdm import tqdm
 
 from .portfolio import Portfolio
-from .support import get_random_name
+from .support import get_random_name, get_coloured_markers
 
 DEFAULT_INITIAL_ASSETS_LIST = 10
 
@@ -476,6 +478,7 @@ class MultiPeriodBacktest:
     def __post_init__(self):
         self.backtest_performed = False
         self.get_files_list()
+        self.coloured_markers = get_coloured_markers()
     
     def get_files_list(self) -> None:
         """
@@ -579,3 +582,60 @@ class MultiPeriodBacktest:
         performance_df = self.performance
         performace_pivot = performance_df.pivot_table(index='file', values=values_columns, aggfunc=agg_columns)
         return performace_pivot
+    
+    @property
+    def roi_performance_df(self) -> pd.DataFrame:
+        """
+        Plot the performance of the backtest based on the ROI.
+
+        """
+        cols_roi = ['roi', 'hold_roi']
+        col_timerange = 'timerange'
+        cols_needed = cols_roi + [col_timerange]
+        roi_perfo = self.performance[cols_needed].copy()
+        roi_perfo['timestart'] = roi_perfo[col_timerange].apply(lambda x: x[0])
+        return roi_perfo
+    
+    def plot_roi_performance(self) -> None:
+        """
+        Plot the performance of the backtest based on the ROI.
+
+        """
+        roi_perfo = self.roi_performance_df
+        fig, ax = plt.subplots(figsize=(12, 12))
+        cols_roi = ['roi', 'hold_roi']
+        rois_values = roi_perfo[cols_roi].values
+        min_roi = np.min(rois_values)
+        max_roi = np.max(rois_values)
+        roi_span = max_roi - min_roi
+        max_displ_roi = max_roi + 0.1 * roi_span
+        min_displ_roi = min_roi - 0.1 * roi_span
+        counter = 0
+        periods = roi_perfo['timestart'].unique()
+        for timestart in periods:
+            marker, color = self.coloured_markers[counter]
+            x = roi_perfo[roi_perfo['timestart'] == timestart]['hold_roi']
+            y = roi_perfo[roi_perfo['timestart'] == timestart]['roi']
+            label = timestart
+            ax.scatter(x=x, y=y, label=label, color=color, marker=marker, alpha=0.4, s=120)
+            counter += 1
+        ax.set_title('Strategy ROI vs Hold ROI', fontsize=30)
+        ax.set_xlabel('Hold ROI (%)', fontsize=20)
+        ax.set_ylabel('Strategy ROI (%)', fontsize=20)
+        if len(periods) <= 40:
+            ax.legend(fontsize='small')
+        ax.grid(True)
+        ax.xaxis.set_minor_locator(AutoMinorLocator())
+        ax.yaxis.set_minor_locator(AutoMinorLocator())
+        ax.grid(which="both")
+        ax.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray')
+        ax.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black')
+        ax.set_xlim(min_displ_roi, max_displ_roi)
+        ax.set_ylim(min_displ_roi, max_displ_roi)
+        # # Convert the x and y axis values to percentage
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
+        # Use tick_params to set the font size of the tick labels
+        ax.tick_params(axis='x', labelsize=15)
+        ax.tick_params(axis='y', labelsize=15)
+        plt.show()
