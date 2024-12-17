@@ -1,12 +1,16 @@
 from dataclasses import dataclass, field
 import os
+import random
 from typing import Optional, Literal, Union
 
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
-from backtesting import Portfolio
+from .portfolio import Portfolio
+from .support import get_random_name
+
+DEFAULT_INITIAL_ASSETS_LIST = 10
 
 @dataclass
 class TradingStrategy:
@@ -27,7 +31,7 @@ class TradingStrategy:
     commission_transfer: float = 0.0
     portfolio_symbol: str = "USDT"
     description: Optional['str'] = None
-    initial_assets_list: Optional[Union[list,dict]] = None
+    initial_assets_list: Union[list,dict,int] = DEFAULT_INITIAL_ASSETS_LIST # Number of random initial assets
     minimal_liquidity_ratio: float = 0.05
     maximal_equity_per_asset_ratio: float = 0.1
     number_of_portfolios: int = 1
@@ -68,7 +72,7 @@ class TradingStrategy:
         return int(np.min(self.timestamps_list))
     
     @property
-    def random_asset_distribution_weights(self) -> np.ndarray:
+    def random_asset_distribution_weights(self) -> tuple[np.ndarray, list]:
         """
         Generate random weights for the assets in the strategy.
 
@@ -77,11 +81,15 @@ class TradingStrategy:
         # To be sure that we have prices for the initial timestamp, we get the assets available at this timestamp.
         historical_prices_first_timestamp = self.historical_prices.loc[self.initial_timestamp]
         available_initial_assets_list = list(historical_prices_first_timestamp['base'].unique())
+        random.shuffle(available_initial_assets_list)
         # We create a list with the assets that form the initial assets list of the portfolio.
         # If there is no initial assets list, we use all the assets in the historical prices.
         assets_symbols_list = []
-        if not self.initial_assets_list:
-            assets_symbols_list.extend(list(available_initial_assets_list))
+        if isinstance(self.initial_assets_list, int):
+            initial_assets = random.sample(list(available_initial_assets_list), self.initial_assets_list)
+            assets_symbols_list.extend(initial_assets)
+        # if not self.initial_assets_list:
+        #     assets_symbols_list.extend(list(available_initial_assets_list))
         # If there is an initial assets list, we check if the assets are part of the historical prices.
         else:
             for asset in self.initial_assets_list:
@@ -93,6 +101,11 @@ class TradingStrategy:
         weights = np.random.random(len(assets_symbols_list) + 1)
         # We normalize the weights to make sure they sum up to 1.
         weights_norm = weights / np.sum(weights)
+        # We need to make sure, that the last value (cash), has at least the minimal_liquidity_ratio.
+        min_ratio = self.minimal_liquidity_ratio
+        weights_norm = weights_norm * (1 - min_ratio)
+        weights_norm[-1] = weights_norm[-1] + min_ratio
+        # The weights_norm's sum should be 1.
         # The last value is the cash weight, so we don't include it.
         weights_assets = weights_norm[:-1]
         weights_assets_rounded_list = list(np.around(weights_assets, decimals))
@@ -105,7 +118,8 @@ class TradingStrategy:
             else:
                 weight = 0
             weights_all_assets_symbol_list.append(weight)
-        return np.array(weights_all_assets_symbol_list)
+        weights_np = np.array(weights_all_assets_symbol_list)
+        return weights_np, assets_symbols_list
 
     @property
     def next_timestamp(self) -> pd.Timestamp:
@@ -142,16 +156,25 @@ class TradingStrategy:
 
         """
         buy_msg = "Buying random asset based on the random weights."
-        random_weights = self.random_asset_distribution_weights
+        random_weights ,_= self.random_asset_distribution_weights
         initial_balance = portfolio.balance
         initial_timestamp = self.initial_timestamp
         prices = self.get_prices_on_timestamp(initial_timestamp)
         portfolio.update_prices(prices=prices, timestamp=initial_timestamp)
-        for asset, weight in zip(self.assets_symbols_list, random_weights):
+        initial_weights_dict = dict(zip(self.assets_symbols_list,random_weights))
+        initial_weights = pd.Series(initial_weights_dict)
+        initial_weights = initial_weights[initial_weights > 0]
+        initial_assets_dict = dict()
+        # We buy the assets based on the random weights.
+        for asset, weight in initial_weights.items():
             amount_quote = initial_balance * float(weight)
             # We buy the asset if the amount is higher than 0, if not we skip it.
             if amount_quote > 0:
                 portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp, msg=buy_msg)
+                # Keep track of the initial assets list.
+                initial_assets_dict[asset] = amount_quote
+        initial_assets = pd.Series(initial_assets_dict)
+        portfolio.initial_assets = initial_assets
     
     def buy_defined_asset(self, portfolio: Portfolio) -> None:
         """
@@ -164,10 +187,16 @@ class TradingStrategy:
         initial_timestamp = self.initial_timestamp
         prices = self.get_prices_on_timestamp(initial_timestamp)
         portfolio.update_prices(prices=prices, timestamp=initial_timestamp)
+        portfolio.initial_assets_list = self.initial_assets_list
+        initial_assets_dict = dict()
         for asset, amount_quote in self.initial_assets_list.items():
             # We need to skip the portfolio symbol as we can't buy it.
             if asset != self.portfolio_symbol:
                 portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp, msg=buy_msg)
+                # Keep track of the initial assets list.
+                initial_assets_dict[asset] = amount_quote
+        initial_assets = pd.Series(initial_assets_dict)
+        portfolio.initial_assets = initial_assets
 
     def create_single_portfolio(self) -> None:
         """
@@ -177,13 +206,15 @@ class TradingStrategy:
             Portfolio: Portfolio object.
 
         """
-        # We need to make a copy of the initial assets list as we will modify it for the other portfolios.
-        initial_assets_list = self.initial_assets_list.copy() if self.initial_assets_list else None
+        portfolio_name = get_random_name()
+        # We do a copy if it's not an integer.
+        initial_assets_list = self.initial_assets_list.copy() if not isinstance(self.initial_assets_list, int) else self.initial_assets_list
         if isinstance(initial_assets_list, dict):
             initial_equity = None
-        elif self.initial_equity:
-            initial_equity = self.initial_equity.copy()
+        else:
+            initial_equity = self.initial_equity
         PF = Portfolio(
+            name=portfolio_name,
             symbol=self.portfolio_symbol,
             commission_trade=self.commission_trade,
             commission_transfer=self.commission_transfer,
@@ -203,9 +234,6 @@ class TradingStrategy:
         else:
             PF.deposit(amount=initial_equity, timestamp=self.initial_timestamp)
             self.buy_random_asset(PF)
-        # previous_amount_factor = {asset: 0 for asset in PF.assets_list}
-        # print(previous_amount_factor)
-        # PF.previous_amount_factor = previous_amount_factor
         self.Portfolios.append(PF)
 
     
@@ -438,7 +466,7 @@ class MultiPeriodBacktest:
     commission_transfer: float = 0.0
     portfolio_symbol: str = "USDT"
     description: Optional['str'] = None
-    initial_assets_list: Optional[Union[list,dict]] = None
+    initial_assets_list: Union[list,dict,int] = DEFAULT_INITIAL_ASSETS_LIST # Number of random initial assets
     minimal_liquidity_ratio: float = 0.05
     maximal_equity_per_asset_ratio: float = 0.1
     number_of_portfolios: int = 1
@@ -454,7 +482,9 @@ class MultiPeriodBacktest:
         Get the list of files in the data path.
 
         """
-        self.files_list = os.listdir(self.data_path)
+        files_list = os.listdir(self.data_path)
+        files_list.sort()
+        self.files_list = files_list
         
     def read_historical_prices(self, file: str) -> pd.DataFrame:
         """
@@ -462,6 +492,8 @@ class MultiPeriodBacktest:
 
         """
         historical_prices = pd.read_feather(os.path.join(self.data_path, file))
+        # We fill the missing labels with 0 - This should only happen on the first data files
+        historical_prices['label_returns'] = historical_prices['label_returns'].fillna(0)
         # Reduce the granularity of the historical prices.
         if self.time_granularity:
             historical_prices = historical_prices[historical_prices['timestamp_id'] % self.time_granularity == 0]
@@ -504,12 +536,17 @@ class MultiPeriodBacktest:
         if self.number_timeperiods:
             files_list = files_list[:self.number_timeperiods]
         if not self.backtest_performed:
+            self.BacktestPeriods = []
             print(f"Running the backtest - Timeperiods: {len(files_list)}")
             counter = 0
             for file in files_list:
-                print(f"Cycle {counter+1} - File: {file}")
+                print(f"TradingStrategy {counter} - File: {file}")
                 historical_prices = self.read_historical_prices(file)
-                TradingStrategy_obj = self.TradingStrategy(historical_prices=historical_prices)
+                TS = self.TradingStrategy(historical_prices=historical_prices)
+                # This should allow to save the TradingStrategy objects in a list.
+                # Even if it crashes, we can still access the TradingStrategy objects.
+                self.BacktestPeriods.append(TS)
+                TradingStrategy_obj = self.BacktestPeriods[counter]
                 TradingStrategy_obj.run_strategy()
                 period_performance = TradingStrategy_obj.performance_df
                 period_performance['file'] = file
@@ -537,7 +574,7 @@ class MultiPeriodBacktest:
         Get the performance overview of the backtest.
 
         """
-        values_columns = ['transactions', 'traded', 'gains', 'roi', 'commissions', 'hold_gains', 'hold_roi']
+        values_columns = ['transactions', 'traded', 'gains', 'roi', 'hold_gains', 'hold_roi']
         agg_columns = ['mean', 'std']
         performance_df = self.performance
         performace_pivot = performance_df.pivot_table(index='file', values=values_columns, aggfunc=agg_columns)

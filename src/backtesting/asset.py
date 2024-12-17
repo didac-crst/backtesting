@@ -11,6 +11,7 @@ class Asset:
     """
 
     symbol: str
+    name: str # This is the portfolio name
 
     def __post_init__(self) -> None:
         self.balance: float = 0.0
@@ -23,5 +24,5 @@ class Asset:
         """
         if amount > self.balance:
             raise ValueError(
-                f"{self.symbol}: Insufficient funds: balance is {self.balance} and you want to spend {amount}."
+                f"[{self.name}] {self.symbol}: Insufficient funds: balance is {self.balance} and you want to spend {amount}."
             )

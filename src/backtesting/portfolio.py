@@ -21,7 +21,6 @@ from .support import (
     thousands,
     to_percent,
     display_pretty_table,
-    get_random_name,
     check_property_update,
 )
 
@@ -35,7 +34,6 @@ class Portfolio(Asset):
 
     """
 
-    name: str = ""
     commission_trade: float = 0.0
     commission_transfer: float = 0.0
     transaction_id: int = 0
@@ -52,7 +50,6 @@ class Portfolio(Asset):
         # This is useful to avoid displaying assets with a very small balance and trying to sell assets with a very small balance
         self.MINIMAL_BALANCE = 0.1 # QUOTE
         self.set_verbosity("verbose")
-        self.set_portfolio_name()
         self.assets = dict()
         self.Ledger = Ledger(portfolio_symbol=self.symbol)
         # We need to keep track of the properties that have been calculated
@@ -78,14 +75,6 @@ class Portfolio(Asset):
 
         """
         return self.Ledger.evolution_id
-    
-    def set_portfolio_name(self) -> None:
-        """
-        Method to fill the name of the portfolio if it is empty.
-
-        """
-        if self.name == "":
-            self.name = get_random_name()
 
     def set_verbosity(self, verbosity_type: VerboseType) -> None:
         """
@@ -244,6 +233,7 @@ class Portfolio(Asset):
         """
         self.assets[symbol] = Currency(
             symbol=symbol,
+            name=self.name,
             portfolio_symbol=self.symbol,
             commission=self.commission_trade,
         )
@@ -1060,7 +1050,7 @@ class Portfolio(Asset):
         Property to provide the theoretical gains of holding the assets in the portfolio.
 
         """
-        prices = self.ledger_prices
+        prices = self.ledger_prices.copy()
         # Need to recalculate the equity to have the correct values
         # self.calculate_ledger_equity()
         equity = self.ledger_equity.copy()
@@ -1083,7 +1073,7 @@ class Portfolio(Asset):
         Property to provide the theoretical gains of holding the assets in the portfolio.
 
         """
-        prices = self.ledger_prices
+        prices = self.ledger_prices.copy()
         # Need to recalculate the equity to have the correct values
         # self.calculate_ledger_equity()
         equity = self.ledger_equity.copy()

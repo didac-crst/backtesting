@@ -182,46 +182,46 @@ class Ledger:
 
     # Ledger reporting methods ------------------------------------------------
         
-    @property
-    @check_property_update
-    def timestamp_reporting_list(self) -> list:
-        """
-        Reduce the timestamp resolution of a list of objects.
+    # @property
+    # @check_property_update
+    # def timestamp_reporting_list(self) -> list:
+    #     """
+    #     Reduce the timestamp resolution of a list of objects.
 
-        """
-        prices_list = self.prices
-        def get_exact_timejump(timespan: int, multiple: int, resolution: int) -> int:
-            # Function to get a timejump that is a multiple of multiple and that fits the resolution.
-            raw_timejump = timespan / resolution
-            return round(raw_timejump / multiple) * multiple
+    #     """
+    #     prices_list = self.prices
+    #     def get_exact_timejump(timespan: int, multiple: int, resolution: int) -> int:
+    #         # Function to get a timejump that is a multiple of multiple and that fits the resolution.
+    #         raw_timejump = timespan / resolution
+    #         return round(raw_timejump / multiple) * multiple
 
-        unique_timestamps = set()
-        for obj in prices_list:
-            value = getattr(obj, 'timestamp', None)
-            if isinstance(value, int):
-                unique_timestamps.add(value)
-        timestamp_list = list(unique_timestamps)
-        timestamp_list.sort()
-        timestamp_series = pd.Series(timestamp_list)
-        # Get the minimal value of the timestamp
-        timestamp_min = timestamp_series.min()
-        # Get the maximal value of the timestamp
-        timestamp_max = timestamp_series.max()
-        # Get the timespan between the minimal and maximal timestamp
-        timespan = timestamp_max - timestamp_min
-        # Get the most common frequency between timestamps
-        if len(timestamp_series) > 1:
-            timestamp_multiple = int(timestamp_series.diff().median())
-        else:
-            timestamp_multiple = 1
-        timejumps = get_exact_timejump(timespan=timespan, multiple=timestamp_multiple, resolution=self.timestamp_low_resolution)
-        # If the timejumps is 0, we return the minimal timestamp
-        # range does not accept a step of 0 (timejumps)
-        if timejumps == 0:
-            timestamps_list = [timestamp_min]
-        else:
-            timestamps_list = list(range(timestamp_min, timestamp_max + 1, timejumps))
-        return timestamps_list
+    #     unique_timestamps = set()
+    #     for obj in prices_list:
+    #         value = getattr(obj, 'timestamp', None)
+    #         if isinstance(value, int):
+    #             unique_timestamps.add(value)
+    #     timestamp_list = list(unique_timestamps)
+    #     timestamp_list.sort()
+    #     timestamp_series = pd.Series(timestamp_list)
+    #     # Get the minimal value of the timestamp
+    #     timestamp_min = timestamp_series.min()
+    #     # Get the maximal value of the timestamp
+    #     timestamp_max = timestamp_series.max()
+    #     # Get the timespan between the minimal and maximal timestamp
+    #     timespan = timestamp_max - timestamp_min
+    #     # Get the most common frequency between timestamps
+    #     if len(timestamp_series) > 1:
+    #         timestamp_multiple = int(timestamp_series.diff().median())
+    #     else:
+    #         timestamp_multiple = 1
+    #     timejumps = get_exact_timejump(timespan=timespan, multiple=timestamp_multiple, resolution=self.timestamp_low_resolution)
+    #     # If the timejumps is 0, we return the minimal timestamp
+    #     # range does not accept a step of 0 (timejumps)
+    #     if timejumps == 0:
+    #         timestamps_list = [timestamp_min]
+    #     else:
+    #         timestamps_list = list(range(timestamp_min, timestamp_max + 1, timejumps))
+    #     return timestamps_list
 
     @property
     @check_property_update
@@ -347,7 +347,7 @@ class Ledger:
         df = df[df["Symbol"].isin(self.active_assets)]
         # We only keep the prices that are in the reporting list
         # The resolution of the reporting list is lower than the prices' timestamps
-        df = df[df["Timestamp"].isin(self.timestamp_reporting_list)]
+        # df = df[df["Timestamp"].isin(self.timestamp_reporting_list)]
         df.reset_index(drop=True, inplace=True)
         return df
 
@@ -492,7 +492,7 @@ class Ledger:
         # Calculate the total equity
         equity_df["Total"] = equity_df.sum(axis=1)
         # We only keep the prices that are in the reporting list
-        equity_df = equity_df[equity_df.index.isin(self.timestamp_reporting_list)]
+        # equity_df = equity_df[equity_df.index.isin(self.timestamp_reporting_list)]
         return equity_df
 
     @property
