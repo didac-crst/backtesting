@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
+import multiprocessing
+from multiprocessing import Queue, get_context, Manager
 import os
 import random
-from typing import Optional, Literal, Union
+from typing import Optional, Literal, Union, Callable
 
 import pandas as pd
 import numpy as np
@@ -451,6 +453,9 @@ class TradingStrategy:
 class MultiPeriodBacktest:
     """
     Dataclass that runs a multi-period backtest on a given strategy.
+    
+    This Class runs on multiprocessing to speed up the backtest.
+    However, it doesn't keep track of the objects created in the TradingStrategy class, but only the performance.
 
     """
 
@@ -528,39 +533,56 @@ class MultiPeriodBacktest:
             max_volatility_to_hold=self.max_volatility_to_hold
         )
         return TradingStrategy_obj
+        
+    def _launch_single_backtest(self, file: str, queue: Queue) -> None:
+        """
+        Launch a single backtest.
+        
+        This is used in the multiprocessing pool.
+        However, we don't collect any TradingStrategy objects, but only the performance.
+        
+        """
+        historical_prices = self.read_historical_prices(file)
+        root_file = file.split('.')[0]
+        TS = self.TradingStrategy(historical_prices=historical_prices)
+        TS.run_strategy()
+        performance_df = TS.performance_df
+        queue.put((root_file, performance_df))
     
     def _run_backtest(self) -> None:
         """
         Run the backtest.
-
         """
-        performance_df = pd.DataFrame()
         files_list = self.files_list
         if self.number_timeperiods:
             files_list = files_list[:self.number_timeperiods]
         if not self.backtest_performed:
-            self.BacktestPeriods = []
-            print(f"Running the backtest - Timeperiods: {len(files_list)}")
-            counter = 0
-            for file in files_list:
-                print(f"TradingStrategy {counter} - File: {file}")
-                historical_prices = self.read_historical_prices(file)
-                TS = self.TradingStrategy(historical_prices=historical_prices)
-                # This should allow to save the TradingStrategy objects in a list.
-                # Even if it crashes, we can still access the TradingStrategy objects.
-                self.BacktestPeriods.append(TS)
-                TradingStrategy_obj = self.BacktestPeriods[counter]
-                TradingStrategy_obj.run_strategy()
-                period_performance = TradingStrategy_obj.performance_df
-                period_performance['file'] = file
-                performance_df = pd.concat([performance_df, period_performance], ignore_index=True)
-                counter += 1
-            self.backtest_performed = True
+            print("Launching the backtest in parallel...")
+            ctx = get_context("spawn")
+            manager = Manager()
+            queue = manager.Queue()
+
+            with ctx.Pool() as pool:
+                pool.starmap(self._launch_single_backtest, [(file, queue) for file in files_list])
+
+            print("Backtest finished and waiting for the results...")
+            # Collect results from the queue
+            performance_dict = dict()
+            while not queue.empty():
+                file, performance = queue.get()
+                print(f"Getting the results for {file}")
+                performance_dict[file] = performance
+
+            performance_df = pd.DataFrame()
+            for file, performance_TS in performance_dict.items():
+                performance_TS['file'] = file
+                performance_df = pd.concat([performance_df, performance_TS], ignore_index=True)
             self._performance = performance_df
+            self.backtest_performed = True
+            print("Backtest completed.")
         else:
             print("The backtest has already been performed - No need to run it again.")
-    
-    
+
     @property
     def performance(self) -> pd.DataFrame:
         """
@@ -617,7 +639,7 @@ class MultiPeriodBacktest:
             x = roi_perfo[roi_perfo['timestart'] == timestart]['hold_roi']
             y = roi_perfo[roi_perfo['timestart'] == timestart]['roi']
             label = timestart
-            ax.scatter(x=x, y=y, label=label, color=color, marker=marker, alpha=0.4, s=120)
+            ax.scatter(x=x, y=y, label=label, color=color, marker=marker, alpha=0.1, s=120)
             counter += 1
         ax.set_title('Strategy ROI vs Hold ROI', fontsize=30)
         ax.set_xlabel('Hold ROI (%)', fontsize=20)
