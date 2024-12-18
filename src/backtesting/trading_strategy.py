@@ -8,7 +8,8 @@ from typing import Optional, Literal, Union, Callable
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.ticker import AutoMinorLocator
+import matplotlib.gridspec as gridspec
+from matplotlib.ticker import AutoMinorLocator, FixedLocator
 from tqdm import tqdm
 
 from .portfolio import Portfolio
@@ -577,6 +578,8 @@ class MultiPeriodBacktest:
             for file, performance_TS in performance_dict.items():
                 performance_TS['file'] = file
                 performance_df = pd.concat([performance_df, performance_TS], ignore_index=True)
+            performance_df.sort_values(by='file', inplace=True)
+            performance_df.reset_index(drop=True, inplace=True)
             self._performance = performance_df
             self.backtest_performed = True
             print("Backtest completed.")
@@ -623,8 +626,45 @@ class MultiPeriodBacktest:
         Plot the performance of the backtest based on the ROI.
 
         """
+        def get_prob_tickers_labels(ticks_labels):
+            """
+            Get rid of the 0% on the y-axis and make sure that the labels are not too long.
+
+            """
+            tick_labels_format = []
+            magnitude = int(np.ceil(np.abs(np.log10(ticks_labels[1]))) + 2)
+            for tick in ticks_labels:
+                if tick != 0:
+                    tick = str(tick)
+                    if len(tick) > magnitude:
+                        tick = f'{tick[:magnitude + 1]}%'
+                    else:
+                        tick = f'{tick}%'
+                    tick_labels_format.append(tick)
+                    
+                else:
+                    tick_labels_format.append('')
+            return tick_labels_format
+        labels_size = 14
+        tickers_size = 12
         roi_perfo = self.roi_performance_df
         fig, ax = plt.subplots(figsize=(12, 12))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        gs = gridspec.GridSpecFromSubplotSpec(2, 2,
+                                              subplot_spec=ax.get_subplotspec(),
+                                              height_ratios=[2, 6],
+                                              width_ratios=[6, 2],
+                                              hspace=0,
+                                              wspace=0)
+        # Create subplots within the GridSpec
+        ax_scatter = fig.add_subplot(gs[1, 0])
+        ax_hist_hold = fig.add_subplot(gs[0, 0])
+        ax_hist_str = fig.add_subplot(gs[1, 1])
+        ax_hist_hold.set_xticklabels([])
+        ax_hist_str.set_yticklabels([])
         cols_roi = ['roi', 'hold_roi']
         rois_values = roi_perfo[cols_roi].values
         min_roi = np.min(rois_values)
@@ -639,25 +679,96 @@ class MultiPeriodBacktest:
             x = roi_perfo[roi_perfo['timestart'] == timestart]['hold_roi']
             y = roi_perfo[roi_perfo['timestart'] == timestart]['roi']
             label = timestart
-            ax.scatter(x=x, y=y, label=label, color=color, marker=marker, alpha=0.1, s=120)
+            ax_scatter.scatter(x=x, y=y, label=label, color=color, marker=marker, alpha=0.1, s=120)
             counter += 1
-        ax.set_title('Strategy ROI vs Hold ROI', fontsize=30)
-        ax.set_xlabel('Hold ROI (%)', fontsize=20)
-        ax.set_ylabel('Strategy ROI (%)', fontsize=20)
+        ax_scatter.set_xlabel('Hold ROI (%)', fontsize=labels_size)
+        ax_scatter.set_ylabel('Strategy ROI (%)', fontsize=labels_size)
         if len(periods) <= 40:
-            ax.legend(fontsize='small')
-        ax.grid(True)
-        ax.xaxis.set_minor_locator(AutoMinorLocator())
-        ax.yaxis.set_minor_locator(AutoMinorLocator())
-        ax.grid(which="both")
-        ax.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray')
-        ax.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black')
-        ax.set_xlim(min_displ_roi, max_displ_roi)
-        ax.set_ylim(min_displ_roi, max_displ_roi)
+            ax_scatter.legend(fontsize='small')
+        ax_scatter.grid(True)
+        ax_scatter.xaxis.set_minor_locator(AutoMinorLocator())
+        ax_scatter.yaxis.set_minor_locator(AutoMinorLocator())
+        ax_scatter.grid(which="both")
+        ax_scatter.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray')
+        ax_scatter.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black')
+        ax_scatter.set_xlim(min_displ_roi, max_displ_roi)
+        ax_scatter.set_ylim(min_displ_roi, max_displ_roi)
         # # Convert the x and y axis values to percentage
-        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
+        ax_scatter.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+        ax_scatter.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
         # Use tick_params to set the font size of the tick labels
-        ax.tick_params(axis='x', labelsize=15)
-        ax.tick_params(axis='y', labelsize=15)
+        ax_scatter.tick_params(axis='x', labelsize=tickers_size, rotation=-90)
+        ax_scatter.tick_params(axis='y', labelsize=tickers_size)
+        # HISTOGRAMS
+        # Probabilites calculation
+        bins = np.linspace(min_displ_roi, max_displ_roi, 100)
+        ## Hold ROI
+        hold_roi = self.roi_performance_df.hold_roi
+        hist_hold_roi, bins_hold_roi = np.histogram(hold_roi, bins=bins)
+        prob_hold_roi = hist_hold_roi / hist_hold_roi.sum()
+        cum_prob_hold_roi = np.cumsum(prob_hold_roi)
+        ## Strategy ROI
+        strat_roi = self.roi_performance_df.roi
+        hist_strat_roi, bins_strat_roi = np.histogram(strat_roi, bins=bins)
+        prob_strat_roi = hist_strat_roi / hist_strat_roi.sum()
+        cum_prob_strat_roi = np.cumsum(prob_strat_roi)
+        # Display the histograms
+        ## Hold ROI
+        ax_hist_hold.bar(bins_hold_roi[:-1], prob_hold_roi, width=np.diff(bins_hold_roi), alpha=0.5, color='blue')
+        ax_hist_hold.set_xlim(min_displ_roi, max_displ_roi)
+        ax_hist_hold.xaxis.set_minor_locator(AutoMinorLocator())
+        ax_hist_hold.yaxis.set_minor_locator(AutoMinorLocator())
+        ax_hist_hold.grid(which="both")
+        ax_hist_hold.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray')
+        ax_hist_hold.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black')
+        ax_hist_hold.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+        ax_hist_hold.tick_params(axis='y', labelsize=tickers_size)
+        ax_hist_hold.set_ylabel('Hold Probabilitly (%)', fontsize=labels_size)
+        ### Avoid displaying 0% on the y-axis
+        yticks = ax_hist_hold.get_yticks()
+        ytick_labels = get_prob_tickers_labels(yticks)
+        ax_hist_hold.yaxis.set_major_locator(FixedLocator(yticks))
+        ax_hist_hold.set_yticklabels(ytick_labels)
+        ## Cum Hold ROI
+        ax_hist_hold_cum = ax_hist_hold.twinx()
+        ax_hist_hold_cum.plot(bins_hold_roi[:-1], cum_prob_hold_roi, color='purple', label='Cumulative Probability')
+        ax_hist_hold_cum.set_ylim(0, 1)
+        ax_hist_hold_cum.set_yticks([])
+        ax_hist_hold_cum.set_yticklabels([])
+        ax_hist_hold_cum.legend(fontsize='small')
+        ax_hist_hold_cum.axhline(y=0.25, color='red', linestyle='--', linewidth=0.8)
+        ax_hist_hold_cum.text(x=max_roi, y=0.26, s='Cum. Prob. 25%', color='red', fontsize=9, ha='right', va='bottom')
+        ax_hist_hold_cum.axhline(y=0.5, color='orange', linestyle='--', linewidth=0.8)
+        ax_hist_hold_cum.text(x=max_roi, y=0.51, s='Cum. Prob. 50%', color='orange', fontsize=9, ha='right', va='bottom')
+        ax_hist_hold_cum.axhline(y=0.75, color='green', linestyle='--', linewidth=0.8)
+        ax_hist_hold_cum.text(x=max_roi, y=0.76, s='Cum. Prob. 75%', color='green', fontsize=9, ha='right', va='bottom')
+        ## Strategy ROI
+        ax_hist_str.barh(bins_strat_roi[:-1], prob_strat_roi, height=np.diff(bins_strat_roi), alpha=0.5, color='blue')
+        ax_hist_str.set_ylim(min_displ_roi, max_displ_roi)
+        ax_hist_str.xaxis.set_minor_locator(AutoMinorLocator())
+        ax_hist_str.yaxis.set_minor_locator(AutoMinorLocator())
+        ax_hist_str.grid(which="both")
+        ax_hist_str.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray')
+        ax_hist_str.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black')
+        ax_hist_str.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+        ax_hist_str.tick_params(axis='x', labelsize=tickers_size, rotation=-90)
+        ax_hist_str.set_xlabel('Strategy Probabilitly (%)', fontsize=labels_size)
+        ### Avoid displaying 0% on the y-axis
+        xticks = ax_hist_str.get_xticks()
+        xtick_labels = get_prob_tickers_labels(xticks)
+        ax_hist_str.xaxis.set_major_locator(FixedLocator(xticks))
+        ax_hist_str.set_xticklabels(xtick_labels)
+        ## Cum Strategy ROI
+        ax_hist_str_cum = ax_hist_str.twiny()
+        ax_hist_str_cum.plot(cum_prob_strat_roi, bins_strat_roi[:-1], color='purple', label='Cumulative Probability')
+        ax_hist_str_cum.set_xlim(0, 1)
+        ax_hist_str_cum.set_xticks([])
+        ax_hist_str_cum.set_xticklabels([])
+        ax_hist_str_cum.axvline(x=0.25, color='red', linestyle='--', linewidth=0.8)
+        ax_hist_str_cum.text(x=0.26, y=min_roi, s='Cum. Prob. 25%', color='red', fontsize=9, ha='left', va='bottom', rotation=-90)
+        ax_hist_str_cum.axvline(x=0.5, color='orange', linestyle='--', linewidth=0.8)
+        ax_hist_str_cum.text(x=0.51, y=min_roi, s='Cum. Prob. 50%', color='orange', fontsize=9, ha='left', va='bottom', rotation=-90)
+        ax_hist_str_cum.axvline(x=0.75, color='green', linestyle='--', linewidth=0.8)
+        ax_hist_str_cum.text(x=0.76, y=min_roi, s='Cum. Prob. 75%', color='green', fontsize=9, ha='left', va='bottom', rotation=-90)
+        # plt.title('Strategy ROI vs Hold ROI', fontsize=30)
         plt.show()
