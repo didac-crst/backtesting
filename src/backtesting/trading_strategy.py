@@ -674,6 +674,8 @@ class MultiPeriodBacktest:
         min_displ_roi = min_roi - 0.1 * roi_span
         counter = 0
         periods = roi_perfo['timestart'].unique()
+        ax_scatter.axhline(y=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+        ax_scatter.axvline(x=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
         for timestart in periods:
             marker, color = self.coloured_markers[counter]
             x = roi_perfo[roi_perfo['timestart'] == timestart]['hold_roi']
@@ -681,6 +683,7 @@ class MultiPeriodBacktest:
             label = timestart
             ax_scatter.scatter(x=x, y=y, label=label, color=color, marker=marker, alpha=0.1, s=120)
             counter += 1
+        # SCATTER PLOT
         ax_scatter.set_xlabel('Hold ROI (%)', fontsize=labels_size)
         ax_scatter.set_ylabel('Strategy ROI (%)', fontsize=labels_size)
         if len(periods) <= 40:
@@ -714,7 +717,8 @@ class MultiPeriodBacktest:
         cum_prob_strat_roi = np.cumsum(prob_strat_roi)
         # Display the histograms
         ## Hold ROI
-        ax_hist_hold.bar(bins_hold_roi[:-1], prob_hold_roi, width=np.diff(bins_hold_roi), alpha=0.5, color='blue')
+        ax_hist_hold.axvline(x=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+        ax_hist_hold.bar(bins_hold_roi[:-1], prob_hold_roi, width=np.diff(bins_hold_roi), alpha=0.3, color='blue')
         ax_hist_hold.set_xlim(min_displ_roi, max_displ_roi)
         ax_hist_hold.xaxis.set_minor_locator(AutoMinorLocator())
         ax_hist_hold.yaxis.set_minor_locator(AutoMinorLocator())
@@ -743,7 +747,8 @@ class MultiPeriodBacktest:
         ax_hist_hold_cum.axhline(y=0.75, color='green', linestyle='--', linewidth=0.8)
         ax_hist_hold_cum.text(x=max_roi, y=0.76, s='Cum. Prob. 75%', color='green', fontsize=9, ha='right', va='bottom')
         ## Strategy ROI
-        ax_hist_str.barh(bins_strat_roi[:-1], prob_strat_roi, height=np.diff(bins_strat_roi), alpha=0.5, color='blue')
+        ax_hist_str.axhline(y=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+        ax_hist_str.barh(bins_strat_roi[:-1], prob_strat_roi, height=np.diff(bins_strat_roi), alpha=0.3, color='blue')
         ax_hist_str.set_ylim(min_displ_roi, max_displ_roi)
         ax_hist_str.xaxis.set_minor_locator(AutoMinorLocator())
         ax_hist_str.yaxis.set_minor_locator(AutoMinorLocator())
@@ -770,5 +775,5 @@ class MultiPeriodBacktest:
         ax_hist_str_cum.text(x=0.51, y=min_roi, s='Cum. Prob. 50%', color='orange', fontsize=9, ha='left', va='bottom', rotation=-90)
         ax_hist_str_cum.axvline(x=0.75, color='green', linestyle='--', linewidth=0.8)
         ax_hist_str_cum.text(x=0.76, y=min_roi, s='Cum. Prob. 75%', color='green', fontsize=9, ha='left', va='bottom', rotation=-90)
-        # plt.title('Strategy ROI vs Hold ROI', fontsize=30)
+        ax.set_title('Strategy ROI vs Hold ROI', fontsize=25)
         plt.show()
