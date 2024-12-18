@@ -1362,9 +1362,9 @@ class Portfolio(Asset):
                     positive_signals = signals.where(signals >= threshold_buy, np.nan)
                     negative_signals = signals.where(signals <= threshold_sell, np.nan)
                     hold_signals = signals.where((signals < threshold_buy) & (signals > threshold_sell), np.nan)
-                    yellow = "#EEEE00"
-                    ax_narrow1.fill_between(datetime, hold_signals, where=hold_signals>0, color=yellow, alpha=0.5)
-                    ax_narrow1.fill_between(datetime, hold_signals, where=hold_signals<0, color=yellow, alpha=0.5)
+                    yellow = "gold"
+                    ax_narrow1.fill_between(datetime, hold_signals, where=hold_signals>0, color=yellow, alpha=0.3)
+                    ax_narrow1.fill_between(datetime, hold_signals, where=hold_signals<0, color=yellow, alpha=0.3)
                     threshold_positive = threshold_buy
                     threshold_negative = threshold_sell
                     # Display the volatility
