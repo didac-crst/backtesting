@@ -69,11 +69,22 @@ class TradingStrategy:
 
     def __post_init__(self):
         self.Portfolios = []
-        self.historical_prices.set_index('timestamp_id', inplace=True)
+        self._prepare_historical_prices()
         self.get_timestamps_list()
         self.current_timestamp = self.initial_timestamp
         self.assets_symbols_list = self.historical_prices['base'].unique()
         self.create_portfolios()
+    
+    def _prepare_historical_prices(self) -> None:
+        """
+        Prepare the historical prices DataFrame.
+
+        """
+        # Get rid of the missing values in the historical prices.
+        columns = ['price', 'volatility', 'label_returns']
+        self.historical_prices.dropna(subset=columns, inplace=True)
+        # Reset the index of the historical
+        self.historical_prices.set_index('timestamp_id', inplace=True)
         
     def get_timestamps_list(self) -> None:
         """
@@ -379,8 +390,11 @@ class TradingStrategy:
                 triggers_owned_assets = triggers[triggers.index.isin(owned_assets)]
                 # We get the asset with the lowest performance.
                 lowest_asset = triggers_owned_assets.idxmin()
-                # We sell the asset with the lowest performance.
-                PF.sell(symbol=lowest_asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=sell_msg)
+                try:
+                    # We sell the asset with the lowest performance.
+                    PF.sell(symbol=lowest_asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=sell_msg)
+                except Exception as e:
+                    print(f"[{PF.name}] [{self.current_timestamp}] [{lowest_asset}] [SELL - LIQUIDITY] - Error: {e}")
     
     def trade_on_signals(self) -> None:
         """
@@ -392,30 +406,39 @@ class TradingStrategy:
         for PF in self.Portfolios:
             # ASSETS TO BUY >>>>>>>>>>>
             for asset in self.current_assets_to_buy:
-                volatility = volatilities[volatilities.index == asset].values[0]
-                # We buy the asset only if the volatility is below the threshold.
-                if (volatility < self.max_volatility_to_buy) or (self.max_volatility_to_buy is None):
-                    # We buy the asset only if we have enough cash plus we still have enough liquidity.
-                    # The minimal threshold liquidity ensures to still have some cash after buying the asset.
-                    mininmal_threshold_liquidity = self.minimal_liquidity_ratio * PF.equity_value / 100
-                    if PF.balance > (self.quote_ticket_amount + mininmal_threshold_liquidity):
-                        # We buy the asset only if the maximal equity per asset ratio is not reached.
-                        asset_equity_ratio = PF.get_value(symbol=asset, quote='USDT') / PF.equity_value
-                        if asset_equity_ratio < self.maximal_equity_per_asset_ratio:
-                            PF.buy(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
+                try:
+                    volatility = volatilities[volatilities.index == asset].values[0]
+                    # We buy the asset only if the volatility is below the threshold.
+                    if (volatility) and ((volatility < self.max_volatility_to_buy) or (self.max_volatility_to_buy is None)):
+                        # We buy the asset only if we have enough cash plus we still have enough liquidity.
+                        # The minimal threshold liquidity ensures to still have some cash after buying the asset.
+                        mininmal_threshold_liquidity = self.minimal_liquidity_ratio * PF.equity_value / 100
+                        if PF.balance > (self.quote_ticket_amount + mininmal_threshold_liquidity):
+                            # We buy the asset only if the maximal equity per asset ratio is not reached.
+                            asset_equity_ratio = PF.get_value(symbol=asset, quote='USDT') / PF.equity_value
+                            if asset_equity_ratio < self.maximal_equity_per_asset_ratio:
+                                PF.buy(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
+                except Exception as e:
+                    print(f"[{PF.name}] [{self.current_timestamp}] [{asset}] [BUY] - Error: {e}")
             # ASSETS TO SELL IF SIGNALS >>>>>>>>>>>
             for asset in self.current_assets_to_sell:
-                # We sell the asset only if we own the asset.
-                if asset in PF.positive_balance_assets_list:
-                    msg = f"Selling asset based on signal."
-                    PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=msg)
+                try:
+                    # We sell the asset only if we own the asset.
+                    if asset in PF.positive_balance_assets_list:
+                        msg = f"Selling asset based on signal."
+                        PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=msg)
+                except Exception as e:
+                    print(f"[{PF.name}] [{self.current_timestamp}] [{asset}] [SELL - SIGNAL] - Error: {e}")
             # ASSETS TO SELL IF VOLATILITY TOO HIGH >>>>>>>>>>>
             for asset in PF.positive_balance_assets_list:
-                volatility = volatilities[volatilities.index == asset].values[0]
-                # We sell the asset only if the volatility is above the threshold.
-                if (volatility > self.max_volatility_to_hold):
-                    msg = f"Selling asset as the volatility is too high: {volatility:.4f}."
-                    PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=msg)
+                try:
+                    volatility = volatilities[volatilities.index == asset].values[0]
+                    # We sell the asset only if the volatility is above the threshold.
+                    if (volatility) and (volatility > self.max_volatility_to_hold):
+                        msg = f"Selling asset as the volatility is too high: {volatility:.4f}."
+                        PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=msg)
+                except Exception as e:
+                    print(f"[{PF.name}] [{self.current_timestamp}] [{asset}] [SELL - VOLATILITY] - Error: {e}")
     
     def dispatch_signals_in_portfolios(self) -> None:
         """
@@ -509,6 +532,7 @@ class MultiPeriodBacktest:
         self.backtest_performed = False
         self.get_files_list()
         self.coloured_markers = get_coloured_markers()
+        self.coloured_markers_number = len(self.coloured_markers)
     
     def get_files_list(self) -> None:
         """
@@ -799,7 +823,8 @@ class MultiPeriodBacktest:
         ax_scatter.axhline(y=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
         ax_scatter.axvline(x=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
         for timestart in periods:
-            marker, color = self.coloured_markers[counter]
+            # As we have a limited number of markers, we need to recycle them.
+            marker, color = self.coloured_markers[counter % self.coloured_markers_number]
             x = roi_perfo[roi_perfo['timestart'] == timestart]['hold_roi']
             y = roi_perfo[roi_perfo['timestart'] == timestart]['roi']
             label = timestart
