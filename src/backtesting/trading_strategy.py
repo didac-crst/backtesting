@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.ticker import AutoMinorLocator, FixedLocator
+import seaborn as sns
 from tqdm import tqdm
 
 from .portfolio import Portfolio
@@ -611,7 +612,7 @@ class MultiPeriodBacktest:
     @property
     def roi_performance_df(self) -> pd.DataFrame:
         """
-        Plot the performance of the backtest based on the ROI.
+        Property that provides the performance of the backtest based on the ROI.
 
         """
         cols_roi = ['roi', 'hold_roi']
@@ -620,6 +621,81 @@ class MultiPeriodBacktest:
         roi_perfo = self.performance[cols_needed].copy()
         roi_perfo['timestart'] = roi_perfo[col_timerange].apply(lambda x: x[0])
         return roi_perfo
+    
+    @property
+    def roi_performance_daily_df(self) -> pd.DataFrame:
+        """
+        Property that provides the performance of the backtest based on the ROI on a daily basis.
+        
+        """
+        def convert_returns_to_daily_returns(returns, timespan):
+            day= 24*3600
+            daily_returns = (1 + returns) ** (day/timespan) - 1
+            return daily_returns
+        roi_perfo = self.roi_performance_df.copy()
+        roi_perfo['timespan'] = roi_perfo.timerange.apply(lambda x: x[1]-x[0])
+        roi_perfo['roi'] = roi_perfo.apply(lambda x: convert_returns_to_daily_returns(x['roi'], x['timespan']), axis=1)
+        roi_perfo['hold_roi'] = roi_perfo.apply(lambda x: convert_returns_to_daily_returns(x['hold_roi'], x['timespan']), axis=1)
+        return roi_perfo
+    
+    # SIMULATION RETURNS
+    
+    def _stochastic_compounded_single_performance(self, roi_performance: pd.DataFrame, days: int) -> pd.Series:
+        """
+        Get the random performance of the backtest based on the ROI for a single day and compounded over a number of days.
+        
+        """
+        size = len(roi_performance)
+        randnum = np.random.randint(0, high=size, size=days)
+        strat_roi_list = []
+        hold_roi_list = []
+        for i in randnum:
+            values = roi_performance.iloc[i]
+            hold_roi_list.append(values['hold_roi'])
+            strat_roi_list.append(values['roi'])
+        values_df = pd.DataFrame([hold_roi_list,strat_roi_list], index=['Hold','Strategy']).T
+        values_df = values_df + 1
+        compound_df = values_df.prod()
+        compound_df = compound_df - 1
+        return compound_df
+    
+    def _run_multiprocess_probabilistic_performance_batch(self, roi_performance: pd.DataFrame, days: int, iterations: int, queue: Queue) -> None:
+        """
+        Run the stochastic compounded performance in a multiprocessing pool.
+
+        """
+        results_list = []
+        for i in range(iterations):
+            results_list.append(self._stochastic_compounded_single_performance(roi_performance = roi_performance, days=days))
+        queue.put(results_list)
+
+    def probabilistic_performance(self, days: int = 1, iterations: int = 20_000) -> pd.DataFrame:
+        """
+        Get the probabilistic performance of the backtest based on empirical ROI data.
+        
+        To get the performance, we compound the daily returns over a number of days.
+        
+        To speed up the process, we use multiprocessing.
+        
+        """
+        results_list = []
+        roi_performance = self.roi_performance_daily_df.copy()
+        iterations_per_batch = 1_000
+        batchs = iterations // iterations_per_batch
+        ctx = get_context("spawn")
+        manager = Manager()
+        queue = manager.Queue()
+
+        with ctx.Pool() as pool:
+            pool.starmap(self._run_multiprocess_probabilistic_performance_batch, [(roi_performance, days, iterations_per_batch, queue) for _ in range(batchs)])
+        while not queue.empty():
+            print("Getting the results...")
+            batch_results_list = queue.get()
+            results_list.extend(batch_results_list)
+        results_df = pd.DataFrame(results_list)
+        return results_df
+    
+    # PLOTTING
     
     def plot_roi_performance(self) -> None:
         """
@@ -647,7 +723,7 @@ class MultiPeriodBacktest:
             return tick_labels_format
         labels_size = 14
         tickers_size = 12
-        roi_perfo = self.roi_performance_df
+        roi_perfo = self.roi_performance_daily_df.copy()
         fig, ax = plt.subplots(figsize=(12, 12))
         ax.set_xticks([])
         ax.set_yticks([])
@@ -663,6 +739,7 @@ class MultiPeriodBacktest:
         ax_scatter = fig.add_subplot(gs[1, 0])
         ax_hist_hold = fig.add_subplot(gs[0, 0])
         ax_hist_str = fig.add_subplot(gs[1, 1])
+        ax_boxes = fig.add_subplot(gs[0, 1])
         ax_hist_hold.set_xticklabels([])
         ax_hist_str.set_yticklabels([])
         cols_roi = ['roi', 'hold_roi']
@@ -684,8 +761,8 @@ class MultiPeriodBacktest:
             ax_scatter.scatter(x=x, y=y, label=label, color=color, marker=marker, alpha=0.1, s=120)
             counter += 1
         # SCATTER PLOT
-        ax_scatter.set_xlabel('Hold ROI (%)', fontsize=labels_size)
-        ax_scatter.set_ylabel('Strategy ROI (%)', fontsize=labels_size)
+        ax_scatter.set_xlabel('Hold daily ROI (%)', fontsize=labels_size)
+        ax_scatter.set_ylabel('Strategy daily ROI (%)', fontsize=labels_size)
         if len(periods) <= 40:
             ax_scatter.legend(fontsize='small')
         ax_scatter.grid(True)
@@ -706,12 +783,12 @@ class MultiPeriodBacktest:
         # Probabilites calculation
         bins = np.linspace(min_displ_roi, max_displ_roi, 100)
         ## Hold ROI
-        hold_roi = self.roi_performance_df.hold_roi
+        hold_roi = self.roi_performance_daily_df.hold_roi.copy()
         hist_hold_roi, bins_hold_roi = np.histogram(hold_roi, bins=bins)
         prob_hold_roi = hist_hold_roi / hist_hold_roi.sum()
         cum_prob_hold_roi = np.cumsum(prob_hold_roi)
         ## Strategy ROI
-        strat_roi = self.roi_performance_df.roi
+        strat_roi = self.roi_performance_daily_df.roi.copy()
         hist_strat_roi, bins_strat_roi = np.histogram(strat_roi, bins=bins)
         prob_strat_roi = hist_strat_roi / hist_strat_roi.sum()
         cum_prob_strat_roi = np.cumsum(prob_strat_roi)
@@ -775,5 +852,24 @@ class MultiPeriodBacktest:
         ax_hist_str_cum.text(x=0.51, y=min_roi, s='Cum. Prob. 50%', color='orange', fontsize=9, ha='left', va='bottom', rotation=-90)
         ax_hist_str_cum.axvline(x=0.75, color='green', linestyle='--', linewidth=0.8)
         ax_hist_str_cum.text(x=0.76, y=min_roi, s='Cum. Prob. 75%', color='green', fontsize=9, ha='left', va='bottom', rotation=-90)
-        ax.set_title('Strategy ROI vs Hold ROI', fontsize=25)
+        # BOX PLOT
+        # Simulate data (replace this with your actual data)
+        data = self.probabilistic_performance()
+
+        # Create the boxplot on the specific Axes object
+        sns.boxplot(data=data, palette="pastel", width=0.6, linewidth=2.5, ax=ax_boxes)
+
+        # Enhance the plot with a descriptive title and labels
+        ax_boxes.set_ylabel('Daily Returns (%)', fontsize=labels_size)
+        ax_boxes.yaxis.set_label_position("right")
+
+        # Customize gridlines and layout
+        ax_boxes.tick_params(axis='x', labelsize=labels_size, top=True, labeltop=True, bottom=False, labelbottom=False)
+        ax_boxes.tick_params(axis='y', labelsize=tickers_size, left=False, labelleft=False, right=True, labelright=True)
+        ax_boxes.yaxis.set_minor_locator(AutoMinorLocator())
+        ax_boxes.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray', axis='y')
+        ax_boxes.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black', axis='y')
+        ax_boxes.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+        
+        ax.set_title('Strategy vs Hold - Daily ROI', fontsize=25)
         plt.show()
