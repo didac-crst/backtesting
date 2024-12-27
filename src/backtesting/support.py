@@ -15,6 +15,16 @@ def now_ms() -> int:
     """
     return int(time() * 1000)
 
+def move_to_end(lst, element):
+    """
+    Function to move an element to the end of a list.
+    
+    """
+    if element in lst:
+        lst.remove(element)
+        lst.append(element)
+    return lst
+
 def check_property_update(func: Callable) -> Callable:
     """
     Decorator to check if properties have been updated.

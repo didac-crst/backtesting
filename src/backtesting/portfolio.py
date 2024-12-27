@@ -22,6 +22,7 @@ from .support import (
     to_percent,
     display_pretty_table,
     check_property_update,
+    move_to_end,
 )
 
 VerboseType = Literal["silent", "action", "status", "verbose"]
@@ -1505,9 +1506,10 @@ class Portfolio(Asset):
         label_colors = self.label_colors.copy()
         equity_share_df = self.ledger_equity_share_displayable.copy()
         resampled_equity_share_df = self.resample_data(equity_share_df, agg_type='mean')
-        # Reverse the columns to do the cumsum in the correct order
-        # Reorder the columns to have the portfolio currency at the end
         columns = list(equity_share_df.columns)
+        # Force the portfolio currency to be the last one
+        columns = move_to_end(columns, self.symbol)
+        # Reverse the columns to do the cumsum in the correct order
         columns.reverse()
         resampled_equity_share_df = resampled_equity_share_df[columns]
         resampled_equity_share_df_cumsum = resampled_equity_share_df.cumsum(axis=1)
@@ -1516,7 +1518,11 @@ class Portfolio(Asset):
         # columns = resampled_equity_share_df_cumsum.columns
         for column in columns:
             color = label_colors[column]
-            ax.fill_between(resampled_equity_share_df_cumsum.index, resampled_equity_share_df_cumsum[column], label=column, color=color, alpha=1.0, edgecolor='black')
+            if column == self.symbol:
+                label = "Cash"
+            else:
+                label = column
+            ax.fill_between(resampled_equity_share_df_cumsum.index, resampled_equity_share_df_cumsum[column], label=label, color=color, alpha=1.0, edgecolor='black')
         ax.set_title("Equity Share Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Equity Share")
