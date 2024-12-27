@@ -472,6 +472,28 @@ class Ledger:
         df = pd.DataFrame(data, columns=columns)
         df = df.merge(self.meta_transactions_df, on="Id")
         return df
+    
+    @property
+    @check_property_update
+    def sales_profit_loss_df(self) -> pd.DataFrame:
+        """
+        Property to calculate the profit and loss of the portfolio for each sell trade as a DataFrame.
+        
+        """
+        COLUMNS = ['Id', 'Action', 'Symbol', 'Amount', 'Price', 'Traded', 'Timestamp', 'Purchase_Price_Average', 'Deducted_Commissions','Profit_Brutto', 'Profit_Netto']
+        transactions_df = self.transactions_df.copy()
+        # We only need the sales of assets
+        assets_sales = transactions_df[(transactions_df['Symbol']!='USDT') & (transactions_df['Action']=='SELL')].copy()
+        assets_sales['Price_Ratio'] = assets_sales['Price'] / assets_sales['Purchase_Price_Average']
+        assets_sales['Growth'] = assets_sales['Price_Ratio'] - 1
+        # We need to know the initial investment (aka the average purchase price) to calculate the profit
+        # This we get it if we know the price ratio (increase or decrease in price) and the current price.
+        assets_sales['Balance_Pre_Quote'] = assets_sales['Balance_Pre'] * assets_sales['Price']
+        assets_sales['Avg_Investment'] = assets_sales['Balance_Pre_Quote'] / assets_sales['Price_Ratio']
+        assets_sales['Gains'] = assets_sales['Avg_Investment'] * assets_sales['Growth']
+        assets_sales['Profit_Brutto'] = (assets_sales['Traded'] / assets_sales['Balance_Pre_Quote']) * assets_sales['Gains']
+        assets_sales['Profit_Netto'] = assets_sales['Profit_Brutto'] - assets_sales['Deducted_Commissions']
+        return assets_sales[COLUMNS]
 
     @property
     @check_property_update
