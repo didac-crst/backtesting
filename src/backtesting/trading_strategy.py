@@ -81,7 +81,7 @@ class TradingStrategy:
 
         """
         if portfolio >= len(self.Portfolios):
-            msg = f"Portfolio {portfolio} doesn't exist. - Number of Portfolios: {len(self.Portfolios)}"
+            msg = f"Portfolio {portfolio} doesn't exist - Number of Portfolios: {len(self.Portfolios)}"
             raise ValueError(msg)
         else:
             return self.Portfolios[portfolio]
@@ -221,7 +221,7 @@ class TradingStrategy:
             amount_quote = initial_balance * float(weight)
             # We buy the asset if the amount is higher than 0, if not we skip it.
             if amount_quote > 0:
-                portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp, msg=buy_msg)
+                portfolio.buy(symbol=asset, amount_quote=amount_quote, reason = "INVESTMENT", timestamp=initial_timestamp, msg=buy_msg)
                 # Keep track of the initial assets list.
                 initial_assets_dict[asset] = amount_quote
         initial_assets = pd.Series(initial_assets_dict)
@@ -243,7 +243,7 @@ class TradingStrategy:
         for asset, amount_quote in self.initial_assets_list.items():
             # We need to skip the portfolio symbol as we can't buy it.
             if asset != self.portfolio_symbol:
-                portfolio.buy(symbol=asset, amount_quote=amount_quote, timestamp=initial_timestamp, msg=buy_msg)
+                portfolio.buy(symbol=asset, amount_quote=amount_quote, reason = "INVESTMENT", timestamp=initial_timestamp, msg=buy_msg)
                 # Keep track of the initial assets list.
                 initial_assets_dict[asset] = amount_quote
         initial_assets = pd.Series(initial_assets_dict)
@@ -403,7 +403,7 @@ class TradingStrategy:
                 lowest_asset = triggers_owned_assets.idxmin()
                 try:
                     # We sell the asset with the lowest performance.
-                    PF.sell(symbol=lowest_asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=sell_msg)
+                    PF.sell(symbol=lowest_asset, amount_quote=self.quote_ticket_amount, reason = "LIQUIDITY", timestamp=self.current_timestamp, msg=sell_msg)
                 except Exception as e:
                     print(f"[{PF.name}] [{self.current_timestamp}] [{lowest_asset}] [SELL - LIQUIDITY] - Error: {e}")
     
@@ -428,7 +428,7 @@ class TradingStrategy:
                             # We buy the asset only if the maximal equity per asset ratio is not reached.
                             asset_equity_ratio = PF.get_value(symbol=asset, quote='USDT') / PF.equity_value
                             if asset_equity_ratio < self.maximal_equity_per_asset_ratio:
-                                PF.buy(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp)
+                                PF.buy(symbol=asset, amount_quote=self.quote_ticket_amount, reason = "SIGNAL", timestamp=self.current_timestamp)
                 except Exception as e:
                     print(f"[{PF.name}] [{self.current_timestamp}] [{asset}] [BUY] - Error: {e}")
             # ASSETS TO SELL IF SIGNALS >>>>>>>>>>>
@@ -437,7 +437,7 @@ class TradingStrategy:
                     # We sell the asset only if we own the asset.
                     if asset in PF.positive_balance_assets_list:
                         msg = f"Selling asset based on signal."
-                        PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=msg)
+                        PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, reason = "SIGNAL", timestamp=self.current_timestamp, msg=msg)
                 except Exception as e:
                     print(f"[{PF.name}] [{self.current_timestamp}] [{asset}] [SELL - SIGNAL] - Error: {e}")
             # ASSETS TO SELL IF VOLATILITY TOO HIGH >>>>>>>>>>>
@@ -447,7 +447,7 @@ class TradingStrategy:
                     # We sell the asset only if the volatility is above the threshold.
                     if (volatility) and (volatility > self.max_volatility_to_hold):
                         msg = f"Selling asset as the volatility is too high: {volatility:.4f}."
-                        PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, timestamp=self.current_timestamp, msg=msg)
+                        PF.sell(symbol=asset, amount_quote=self.quote_ticket_amount, reason = "VOLATILITY", timestamp=self.current_timestamp, msg=msg)
                 except Exception as e:
                     print(f"[{PF.name}] [{self.current_timestamp}] [{asset}] [SELL - VOLATILITY] - Error: {e}")
     

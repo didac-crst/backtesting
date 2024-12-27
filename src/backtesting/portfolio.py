@@ -24,6 +24,7 @@ from .support import (
     check_property_update,
     move_to_end,
 )
+from .record_objects import LITERAL_TRANSACTION_REASON
 
 VerboseType = Literal["silent", "action", "status", "verbose"]
 
@@ -318,6 +319,7 @@ class Portfolio(Asset):
             id=transaction_id,
             timestamp=timestamp,
             trade=False,
+            reason="INVESTMENT",
             symbol=self.symbol,
             amount=amount,
             price=1,
@@ -354,6 +356,7 @@ class Portfolio(Asset):
             id=transaction_id,
             timestamp=timestamp,
             trade=False,
+            reason="DISBURSEMENT",
             symbol=self.symbol,
             amount=amount,
             price=1,
@@ -382,7 +385,7 @@ class Portfolio(Asset):
 
     @check_positive
     def buy(
-        self, symbol: str, amount_quote: float, timestamp: Optional[int] = None, msg: Optional[str] = None
+        self, symbol: str, amount_quote: float, reason: LITERAL_TRANSACTION_REASON, timestamp: Optional[int] = None, msg: Optional[str] = None
     ) -> None:
         """
         Method to buy an amount of an asset in the portfolio.
@@ -402,6 +405,7 @@ class Portfolio(Asset):
             id=transaction_id,
             timestamp=timestamp,
             trade=True,
+            reason=reason,
             symbol=symbol,
             amount=amount_base,
             price=self.assets[symbol].price,
@@ -414,6 +418,7 @@ class Portfolio(Asset):
             id=transaction_id,
             timestamp=timestamp,
             trade=True,
+            reason=reason,
             symbol=self.symbol,
             amount=amount_quote,
             price=1,
@@ -433,7 +438,7 @@ class Portfolio(Asset):
 
     @check_positive
     def sell(
-        self, symbol: str, amount_quote: float, timestamp: Optional[int] = None, msg: Optional[str] = None
+        self, symbol: str, amount_quote: float, reason: LITERAL_TRANSACTION_REASON, timestamp: Optional[int] = None, msg: Optional[str] = None
     ) -> None:
         """
         Method to sell an amount of an asset in the portfolio.
@@ -459,6 +464,7 @@ class Portfolio(Asset):
             id=transaction_id,
             timestamp=timestamp,
             trade=True,
+            reason=reason,
             symbol=symbol,
             amount=amount_base,
             price=self.assets[symbol].price,
@@ -471,6 +477,7 @@ class Portfolio(Asset):
             id=transaction_id,
             timestamp=timestamp,
             trade=True,
+            reason=reason,
             symbol=self.symbol,
             amount=amount_quote,
             price=1,

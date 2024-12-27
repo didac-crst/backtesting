@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Literal
 
 import pandas as pd
 import numpy as np
 
-from .record_objects import Capital, CurrencyPrice, Transaction, MetaTransaction
+from .record_objects import Capital, CurrencyPrice, Transaction, MetaTransaction, LITERAL_TRANSACTION_ACTION, LITERAL_TRANSACTION_REASON
 from .support import check_property_update, display_price
 
 
@@ -99,7 +99,8 @@ class Ledger:
         id: int,
         timestamp: int,
         trade: bool,
-        action: str,
+        action: LITERAL_TRANSACTION_ACTION,
+        reason: LITERAL_TRANSACTION_REASON,
         symbol: str,
         amount: float,
         price: float,
@@ -114,6 +115,7 @@ class Ledger:
         transaction = Transaction(
             id=id,
             action=action,
+            reason=reason,
             symbol=symbol,
             amount=float(amount),
             price=float(price),
@@ -151,6 +153,7 @@ class Ledger:
         id: int,
         timestamp: int,
         trade: bool,
+        reason: LITERAL_TRANSACTION_REASON,
         symbol: str,
         amount: float,
         price: float,
@@ -161,13 +164,14 @@ class Ledger:
         Method to record a buy transaction in the ledger.
 
         """
-        self.record_transaction(id, timestamp, trade, "BUY", symbol, amount, price, commission, balance_pre)
+        self.record_transaction(id = id, timestamp = timestamp, trade = trade, action = "BUY", reason = reason, symbol = symbol, amount = amount, price = price, commission = commission, balance_pre = balance_pre)
 
     def sell(
         self,
         id: int,
         timestamp: int,
         trade: bool,
+        reason: LITERAL_TRANSACTION_REASON,
         symbol: str,
         amount: float,
         price: float,
@@ -178,7 +182,7 @@ class Ledger:
         Method to record a sell transaction in the ledger.
 
         """
-        self.record_transaction(id, timestamp, trade, "SELL", symbol, amount, price, commission, balance_pre)
+        self.record_transaction(id = id, timestamp = timestamp, trade = trade, action = "SELL", reason = reason, symbol = symbol, amount = amount, price = price, commission = commission, balance_pre = balance_pre)
 
     # Ledger reporting methods ------------------------------------------------
         
@@ -405,6 +409,7 @@ class Ledger:
                 (
                     transaction.id,
                     transaction.action,
+                    transaction.reason,
                     transaction.symbol,
                     transaction.amount,
                     transaction.price,
@@ -416,6 +421,7 @@ class Ledger:
         columns = (
             "Id",
             "Action",
+            "Reason",
             "Symbol",
             "Amount",
             "Price",

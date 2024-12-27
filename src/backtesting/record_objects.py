@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass
@@ -24,6 +25,8 @@ class CurrencyPrice:
     symbol: str
     price: float
 
+LITERAL_TRANSACTION_ACTION = Literal["BUY", "SELL"]
+LITERAL_TRANSACTION_REASON = Literal["SIGNAL", "LIQUIDITY", "VOLATILITY", "INVESTMENT", "DISBURSEMENT"]
 
 @dataclass
 class Transaction:
@@ -32,7 +35,8 @@ class Transaction:
 
     """
     id: int
-    action: str
+    action: LITERAL_TRANSACTION_ACTION
+    reason: LITERAL_TRANSACTION_REASON
     symbol: str
     amount: float
     price: float
