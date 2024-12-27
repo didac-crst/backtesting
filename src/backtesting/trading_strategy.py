@@ -52,7 +52,7 @@ class TradingStrategy:
     triggering_feature: str
     threshold_buy: float
     threshold_sell: float
-    signals: list[str] = field(default_factory=list)
+    # signals: list[str] = field(default_factory=list)
     initial_equity: Optional[float] = None
     quote_ticket_amount: float = 100.0
     maximal_assets_to_buy: int = 5
@@ -74,6 +74,17 @@ class TradingStrategy:
         self.current_timestamp = self.initial_timestamp
         self.assets_symbols_list = self.historical_prices['base'].unique()
         self.create_portfolios()
+        
+    def __call__(self, portfolio: int = 0) -> Portfolio:
+        """
+        Display a Portfolio object.
+
+        """
+        if portfolio >= len(self.Portfolios):
+            msg = f"Portfolio {portfolio} doesn't exist. - Number of Portfolios: {len(self.Portfolios)}"
+            raise ValueError(msg)
+        else:
+            return self.Portfolios[portfolio]
     
     def _prepare_historical_prices(self) -> None:
         """
