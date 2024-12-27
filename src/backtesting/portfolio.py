@@ -1437,6 +1437,25 @@ class Portfolio(Asset):
         ax.fill_between(datetime, equity, where=(equity > 0), color="green", alpha=0.1)  # type: ignore
         ax.fill_between(datetime, equity, where=(equity < 0), color="red", alpha=0.1)  # type: ignore
 
+        # CURRENCY PRICES
+        historical_prices = self.historical_prices_pivot_displayable.copy()
+        resampled_historical_prices = self.resample_data(historical_prices, agg_type='mean')
+        for asset in resampled_historical_prices.columns:
+            # We don't want to plot the portfolio currency
+            # There is no growth for the portfolio currency
+            if asset != self.symbol:
+                label = (
+                    f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
+                )
+                asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
+                timestamp = asset_prices.index
+                datetime = pd.to_datetime(timestamp, unit="s")
+                color = label_colors[asset]
+                # Plot line
+                ax.plot(datetime, asset_prices, label=label, linewidth=1, alpha=1, color=color)
+                # Plot shadow
+                ax.plot(datetime, asset_prices, linewidth=4, alpha=0.3, color=color)
+                
         # THEORETICAL HOLD EQUITY
         theoretical_hold_equity = self.historical_theoretical_hold_equity
         resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity, agg_type='mean')
@@ -1444,27 +1463,13 @@ class Portfolio(Asset):
         timestamp = theoretical_equity.index
         datetime = pd.to_datetime(timestamp, unit="s")
         label = f"Hold ({display_percentage(self.hold_roi)})"
-        hold_color = label_colors['hold']
+        # hold_color = label_colors['hold']
         # Plot line
-        ax.plot(datetime, theoretical_equity, label=label, linewidth=2, alpha=1, color=hold_color)
+        ax.plot(datetime, theoretical_equity, label=label, linewidth=0.7, alpha=1, color="black", linestyle='--')
         # Plot shadow
-        ax.plot(datetime, theoretical_equity, linewidth=6, alpha=0.3, color=hold_color)
-
-        # CURRENCY PRICES
-        historical_prices = self.historical_prices_pivot_displayable.copy()
-        resampled_historical_prices = self.resample_data(historical_prices, agg_type='mean')
-        for asset in resampled_historical_prices.columns:
-            label = (
-                f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
-            )
-            asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
-            timestamp = asset_prices.index
-            datetime = pd.to_datetime(timestamp, unit="s")
-            color = label_colors[asset]
-            # Plot line
-            ax.plot(datetime, asset_prices, label=label, linewidth=1, alpha=1, color=color)
-            # Plot shadow
-            ax.plot(datetime, asset_prices, linewidth=4, alpha=0.3, color=color)
+        ax.plot(datetime, theoretical_equity, linewidth=3.5, alpha=0.3, color='black')
+        
+        
         ax.set_title("Equity and Currency Change Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Growth")
@@ -1551,7 +1556,7 @@ class Portfolio(Asset):
 
         ax.axhline(y=0, color='black', linewidth=1)
 
-        color_hold = label_colors['hold']
+        color_other = label_colors['other']
         color_symbol = label_colors[self.symbol]
 
         # Non liquid assets
@@ -1561,7 +1566,7 @@ class Portfolio(Asset):
         non_liquid_df = self.resample_data(non_liquid_df, agg_type='last')
         datetime = non_liquid_df.index
         assets_value = non_liquid_df["Total"]
-        ax.plot(datetime, assets_value, color=color_hold, alpha=0.4, linewidth=1)
+        ax.plot(datetime, assets_value, color=color_other, alpha=0.4, linewidth=1)
 
         # Equity
         historical_equity = self.ledger_equity_datetime.copy()
@@ -1571,7 +1576,7 @@ class Portfolio(Asset):
         ax.plot(datetime, total_equity, color=color_symbol, alpha=1.0, linewidth=1)
 
         # Fill where the differences
-        ax.fill_between(datetime, assets_value, color=color_hold, alpha=0.4, label='Assets')
+        ax.fill_between(datetime, assets_value, color=color_other, alpha=0.4, label='Assets')
         ax.fill_between(datetime, assets_value, total_equity, color=color_symbol, alpha=0.4, label='Cash')
 
         # Need to recalculate the equity to have the correct values
@@ -1645,8 +1650,8 @@ class Portfolio(Asset):
     @property
     @check_property_update
     def label_colors(self) -> None:
-        hold = 'hold'
-        labels = [self.symbol, hold, *self.assets_to_display_list]
+        other = 'other'
+        labels = [self.symbol, other, *self.assets_to_display_list]
         cmap = plt.get_cmap("tab20")
         colors = {label: cmap(i) for i, label in enumerate(labels)}
         return colors
