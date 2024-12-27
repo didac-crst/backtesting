@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 
 from .record_objects import Capital, CurrencyPrice, Transaction, MetaTransaction, LITERAL_TRANSACTION_ACTION, LITERAL_TRANSACTION_REASON
-from .support import check_property_update, display_price
+from .support import check_property_update, display_price, display_percentage
 
 
 @dataclass
@@ -80,6 +80,8 @@ class Ledger:
         timestamp: int,
         trade: bool,
         reason: LITERAL_TRANSACTION_REASON,
+        purchase_price_avg: Optional[float],
+        deducted_commissions: Optional[float],
     ) -> None:
         """
         Method to record a meta transaction in the ledger.
@@ -90,6 +92,8 @@ class Ledger:
             timestamp=timestamp,
             trade=trade,
             reason=reason,
+            purchase_price_avg=purchase_price_avg,
+            deducted_commissions=deducted_commissions,
             ack=False,
         )
         # We only record the meta transaction if the id is not already in the list
@@ -108,6 +112,8 @@ class Ledger:
         price: float,
         commission: float,
         balance_pre: float,
+        purchase_price_avg: Optional[float],
+        deducted_commissions: Optional[float] = None,
     ) -> None:
         """
         Method to record a transaction in the ledger.
@@ -126,7 +132,12 @@ class Ledger:
         )
         self.transactions.append(transaction)
         # We record the meta transaction
-        self.record_meta_transaction(id, timestamp, trade, reason=reason)
+        self.record_meta_transaction(id=id,
+                                     timestamp=timestamp,
+                                     trade=trade,
+                                     reason=reason,
+                                     purchase_price_avg=purchase_price_avg,
+                                     deducted_commissions=deducted_commissions)
         # We keep track of the assets that have been traded
         self.record_active_asset(symbol)
     
@@ -160,12 +171,23 @@ class Ledger:
         price: float,
         commission: float,
         balance_pre: float,
+        purchase_price_avg: Optional[float] = None,
     ) -> None:
         """
         Method to record a buy transaction in the ledger.
 
         """
-        self.record_transaction(id = id, timestamp = timestamp, trade = trade, action = "BUY", reason = reason, symbol = symbol, amount = amount, price = price, commission = commission, balance_pre = balance_pre)
+        self.record_transaction(id = id,
+                                timestamp = timestamp,
+                                trade = trade,
+                                action = "BUY",
+                                reason = reason,
+                                symbol = symbol,
+                                amount = amount,
+                                price = price,
+                                commission = commission,
+                                balance_pre = balance_pre,
+                                purchase_price_avg = purchase_price_avg)
 
     def sell(
         self,
@@ -178,12 +200,25 @@ class Ledger:
         price: float,
         commission: float,
         balance_pre: float,
+        purchase_price_avg: Optional[float] = None,
+        deducted_commissions: float = 0.0,
     ) -> None:
         """
         Method to record a sell transaction in the ledger.
 
         """
-        self.record_transaction(id = id, timestamp = timestamp, trade = trade, action = "SELL", reason = reason, symbol = symbol, amount = amount, price = price, commission = commission, balance_pre = balance_pre)
+        self.record_transaction(id = id,
+                                timestamp = timestamp,
+                                trade = trade,
+                                action = "SELL",
+                                reason = reason,
+                                symbol = symbol,
+                                amount = amount,
+                                price = price,
+                                commission = commission,
+                                balance_pre = balance_pre,
+                                purchase_price_avg = purchase_price_avg,
+                                deducted_commissions = deducted_commissions)
 
     # Ledger reporting methods ------------------------------------------------
         
@@ -383,6 +418,8 @@ class Ledger:
                     meta_transaction.timestamp,
                     meta_transaction.trade,
                     meta_transaction.reason,
+                    meta_transaction.purchase_price_avg,
+                    meta_transaction.deducted_commissions,
                     meta_transaction.ack,
                     meta_transaction.messages,
                 )
@@ -392,6 +429,8 @@ class Ledger:
             "Timestamp",
             "Trade",
             "Reason",
+            "Purchase_Price_Average",
+            "Deducted_Commissions",
             "Ack",
             "Messages",
         )
@@ -569,28 +608,65 @@ class Ledger:
             
         """
         log_entry = self.log_df.loc[id].to_dict()
-        trade_type = f"{log_entry["Action"]}ING"
+        action = log_entry["Action"]
+        trade_type = f"{action}ING"
+        trade_reason = log_entry["Reason"]
         timestamp = log_entry["Timestamp"]
         symbol = log_entry["Symbol"]
         price = log_entry["Price"]
+        purchase_price_avg = log_entry["Purchase_Price_Average"]
+        deducted_commissions = log_entry["Deducted_Commissions"]
         amount_base = log_entry["Amount"]
         amount_quote = amount_base * price
-        balance_asset_pre = log_entry["Balance_Asset_Pre"]
-        balance_asset_post = log_entry["Balance_Asset_Post"]
+        balance_asset_pre_base = log_entry["Balance_Asset_Pre"]
+        balance_asset_pre_quote = balance_asset_pre_base * price
+        balance_asset_post_base = log_entry["Balance_Asset_Post"]
+        balance_asset_post_quote = balance_asset_post_base * price
         balance_liquid_pre = log_entry["Balance_Liquid_Pre"]
         balance_liquid_post = log_entry["Balance_Liquid_Post"]
         ack = ["(NAK)", "(ACK)"][log_entry["Ack"]]
         messages = log_entry["Messages"]
-        display_msg = f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {symbol.upper()} - {trade_type.upper()} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+        display_msg = f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {symbol.upper()} - {trade_type.upper()} ({trade_reason.upper()}) <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
         transaction_msg = (
             f"{trade_type.capitalize()} {display_price(amount_base, symbol)} for {display_price(amount_quote, self.portfolio_symbol)} "
             f"at {display_price(price, self.portfolio_symbol)}/{symbol} "
             f"(Commission: {display_price(log_entry['Commission'], self.portfolio_symbol)})"
-        )   
+        )
+        # Add profitability message
+        display_profitability_msg = False
+        if action == "BUY":
+            if not np.isnan(purchase_price_avg):
+                price_ratio = (price/purchase_price_avg)
+                profitability_msg = (
+                    f"Buying at {display_percentage(price_ratio)} from the previous average purchase price "
+                    f"({display_price(purchase_price_avg, self.portfolio_symbol)})"
+                )
+                display_profitability_msg = True
+        elif action == "SELL":
+            price_ratio = (price/purchase_price_avg)
+            growth = price_ratio - 1
+            # We need to know the initial investment (aka the average purchase price) to calculate the profit
+            # This we get it if we know the price ratio (increase or decrease in price) and the current price.
+            avg_investment = balance_asset_pre_quote / price_ratio
+            gains = avg_investment * growth
+            # To calculate the profit brutto we need to only take the proportion of the asset that has been sold
+            # balance_asset_pre_quote is the balance before the trade compared with the amount of the asset that has been sold
+            profit_brutto = (amount_quote / balance_asset_pre_quote) * gains
+            profit_netto = profit_brutto - deducted_commissions
+            profitability_msg = (
+                f"Selling at {display_percentage(price_ratio)} from the average purchase price "
+                f"({display_price(purchase_price_avg, self.portfolio_symbol)})\n"
+                f"-> {'Profit' if profit_netto > 0 else 'Loss'}: {display_price(profit_netto, self.portfolio_symbol)} "
+                f"(Brutto: {display_price(profit_brutto, self.portfolio_symbol)} - Deducted Commissions: {display_price(deducted_commissions, self.portfolio_symbol)})"
+            )
+            display_profitability_msg = True
+        # Build the display message
         display_msg += f"\n[{id}] {ack}- Timestamp: {timestamp}"
-        display_msg += f"\n-> BALANCE PRE-TRADE >> ASSET: {display_price(balance_asset_pre, symbol)} ({display_price(balance_asset_pre * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_pre, self.portfolio_symbol)}"
+        display_msg += f"\n-> BALANCE PRE-TRADE >> ASSET: {display_price(balance_asset_pre_base, symbol)} ({display_price(balance_asset_pre_quote, self.portfolio_symbol)}) - CASH: {display_price(balance_liquid_pre, self.portfolio_symbol)}"
         display_msg += f"\n-> {transaction_msg}"
-        display_msg += f"\n-> BALANCE POST-TRADE >> ASSET: {display_price(balance_asset_post, symbol)} ({display_price(balance_asset_post * price, self.portfolio_symbol)}) - LIQUIDITY: {display_price(balance_liquid_post, self.portfolio_symbol)}"
+        if display_profitability_msg:
+            display_msg += f"\n-> {profitability_msg}"
+        display_msg += f"\n-> BALANCE POST-TRADE >> ASSET: {display_price(balance_asset_post_base, symbol)} ({display_price(balance_asset_post_quote, self.portfolio_symbol)}) - CASH: {display_price(balance_liquid_post, self.portfolio_symbol)}"
         if messages:
             display_msg += f"\n----- Messages: -----------------------------------------------------------------------"
             count = 0

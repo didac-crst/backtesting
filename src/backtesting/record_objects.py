@@ -53,5 +53,7 @@ class MetaTransaction:
     timestamp: int
     trade: bool
     reason: LITERAL_TRANSACTION_REASON
+    purchase_price_avg: float
+    deducted_commissions: float
     ack: bool
     messages: list[str] = field(default_factory=list)

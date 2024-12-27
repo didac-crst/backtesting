@@ -109,8 +109,10 @@ class Portfolio(Asset):
                 "Balance",
                 "Value",
                 "Last Price",
+                "Avg. Purchase Price",
                 "Transactions",
                 "Total traded",
+                "Commissions",
                 "Performance",
                 "Gains",
                 "Currency growth",
@@ -131,6 +133,7 @@ class Portfolio(Asset):
                     *Currency.info,
                     display_integer(self.transactions_count(asset_symbol)),
                     display_price(self.transactions_sum(asset_symbol), self.symbol),
+                    display_price(Currency.commissions_sum, self.symbol),
                     display_percentage(performance_assets[asset_symbol]),
                     display_price(gains_assets[asset_symbol], self.symbol),
                     display_percentage(self.get_asset_growth(asset_symbol)),
@@ -299,6 +302,21 @@ class Portfolio(Asset):
         if verbose_status_flag:
             self.verbose_status = True
         self.print_portfolio()
+    
+    def _update_purchase_price_avg(self, symbol: str, price: float, amount_base: float) -> None:
+        """
+        Method to update the average purchase price of an asset in the portfolio.
+
+        """
+        current_balance = self.assets[symbol].balance
+        prev_purchase_price_avg = self.assets[symbol].purchase_price_avg
+        if np.isnan(prev_purchase_price_avg):
+            updated_purchase_price_avg = price
+        else:
+            updated_purchase_price_avg = (
+                ( (prev_purchase_price_avg * current_balance) + (price * amount_base) ) / (current_balance + amount_base)
+            )
+        self.assets[symbol]._update_purchase_price_avg(updated_purchase_price_avg)
         
     @check_positive
     def deposit(self, amount: float, timestamp: Optional[int] = None) -> None:
@@ -328,7 +346,9 @@ class Portfolio(Asset):
         )
         net_amount = amount - commission
         # Here starts the real transaction
+        ## Keep track of the commissions paid globally
         self.commissions_sum += float(commission)
+        ## Keep track of the balance
         self.balance += float(net_amount)
         # Record the capital movement in the ledger
         self.Ledger.invest_capital(timestamp=timestamp, amount=amount)
@@ -375,7 +395,9 @@ class Portfolio(Asset):
             else:
                 raise e
         # Here starts the real transaction
+        ## Keep track of the commissions paid globally
         self.commissions_sum += float(commission)
+        ## Keep track of the balance
         self.balance -= float(gross_amount)
         # Record the capital movement in the ledger
         self.Ledger.disburse_capital(timestamp=timestamp, amount=amount)
@@ -393,6 +415,7 @@ class Portfolio(Asset):
         """
         transaction_id = self.new_transaction_id()
         balance_liquid_pre = self.balance
+        prev_purchase_price_avg = self.assets[symbol].purchase_price_avg
         balance_asset_pre = self.get_value(symbol=symbol, quote=symbol)
         price = self.assets[symbol].price
         if timestamp is None:
@@ -410,7 +433,8 @@ class Portfolio(Asset):
             amount=amount_base,
             price=self.assets[symbol].price,
             commission=0,
-            balance_pre=balance_asset_pre
+            balance_pre=balance_asset_pre,
+            purchase_price_avg=prev_purchase_price_avg,
         )
         # Record the transaction in the ledger for the portfolio currency
         # The transaction is not acknowledged yet
@@ -423,14 +447,24 @@ class Portfolio(Asset):
             amount=amount_quote,
             price=1,
             commission=commission_quote,
-            balance_pre=balance_liquid_pre
+            balance_pre=balance_liquid_pre,
         )
+        if np.isnan(prev_purchase_price_avg):
+            self.Ledger.add_message_to_transaction(transaction_id, "Buying asset for the first time")
         # Add message to the transaction
         self.Ledger.add_message_to_transaction(transaction_id, msg)
         gross_amount_quote = amount_quote + commission_quote
         self.check_amount(gross_amount_quote)
+        # Add the commissions to the commissions amortization
+        self.assets[symbol]._add_commissions_in_commissions_amortization(commission_quote)
+        # Update the average purchase price of the asset
+        self._update_purchase_price_avg(symbol, price, amount_base)
         # Here starts the real transaction
+        ## Keep track of the commissions impacted on each asset
+        self.assets[symbol].commissions_sum += float(commission_quote)
+        ## Keep track of the cash balance
         self.balance -= float(gross_amount_quote)
+        ## Keep track of the asset balance
         self.assets[symbol]._deposit(amount_base)
         # Acknowledge the transaction
         self.Ledger.confirm_transaction(transaction_id)
@@ -446,6 +480,7 @@ class Portfolio(Asset):
         """
         transaction_id = self.new_transaction_id()
         balance_liquid_pre = self.balance
+        purchase_price_avg = self.assets[symbol].purchase_price_avg
         balance_asset_pre = self.get_value(symbol=symbol, quote=symbol)
         price = self.assets[symbol].price
         # if relative_amount:
@@ -458,6 +493,9 @@ class Portfolio(Asset):
             amount_quote = asset_value_quote * 0.9999 # To avoid rounding errors
         amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
+        # Deduct the commissions from the commissions amortization
+        deducted_commissions = self.assets[symbol]._deduct_commissions_from_comissions_amortization(amount_quote)
+        deducted_commissions += commission_quote
         # Record the transaction in the ledger for the asset
         # The transaction is not acknowledged yet
         self.Ledger.sell(
@@ -469,7 +507,9 @@ class Portfolio(Asset):
             amount=amount_base,
             price=self.assets[symbol].price,
             commission=0,
-            balance_pre=balance_asset_pre
+            balance_pre=balance_asset_pre,
+            purchase_price_avg=purchase_price_avg,
+            deducted_commissions=deducted_commissions,
         )
         # Record the transaction in the ledger for the portfolio currency
         # The transaction is not acknowledged yet
@@ -489,7 +529,11 @@ class Portfolio(Asset):
         self.check_amount(commission_quote)
         net_amount_quote = amount_quote - commission_quote
         # Here starts the real transaction
+        ## Keep track of the commissions impacted on each asset
+        self.assets[symbol].commissions_sum += float(commission_quote)
+        ## Keep track of the asset balance
         self.assets[symbol]._withdraw(amount_base)
+        ## Keep track of the cash balance
         self.balance += float(net_amount_quote)
         # Acknowledge the transaction
         self.Ledger.confirm_transaction(transaction_id)
