@@ -79,6 +79,7 @@ class Ledger:
         id: int,
         timestamp: int,
         trade: bool,
+        reason: LITERAL_TRANSACTION_REASON,
     ) -> None:
         """
         Method to record a meta transaction in the ledger.
@@ -88,6 +89,7 @@ class Ledger:
             id=id,
             timestamp=timestamp,
             trade=trade,
+            reason=reason,
             ack=False,
         )
         # We only record the meta transaction if the id is not already in the list
@@ -115,7 +117,6 @@ class Ledger:
         transaction = Transaction(
             id=id,
             action=action,
-            reason=reason,
             symbol=symbol,
             amount=float(amount),
             price=float(price),
@@ -125,7 +126,7 @@ class Ledger:
         )
         self.transactions.append(transaction)
         # We record the meta transaction
-        self.record_meta_transaction(id, timestamp, trade)
+        self.record_meta_transaction(id, timestamp, trade, reason=reason)
         # We keep track of the assets that have been traded
         self.record_active_asset(symbol)
     
@@ -381,6 +382,7 @@ class Ledger:
                     meta_transaction.id,
                     meta_transaction.timestamp,
                     meta_transaction.trade,
+                    meta_transaction.reason,
                     meta_transaction.ack,
                     meta_transaction.messages,
                 )
@@ -389,6 +391,7 @@ class Ledger:
             "Id",
             "Timestamp",
             "Trade",
+            "Reason",
             "Ack",
             "Messages",
         )
@@ -409,7 +412,6 @@ class Ledger:
                 (
                     transaction.id,
                     transaction.action,
-                    transaction.reason,
                     transaction.symbol,
                     transaction.amount,
                     transaction.price,
@@ -421,7 +423,6 @@ class Ledger:
         columns = (
             "Id",
             "Action",
-            "Reason",
             "Symbol",
             "Amount",
             "Price",

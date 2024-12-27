@@ -36,7 +36,6 @@ class Transaction:
     """
     id: int
     action: LITERAL_TRANSACTION_ACTION
-    reason: LITERAL_TRANSACTION_REASON
     symbol: str
     amount: float
     price: float
@@ -53,5 +52,6 @@ class MetaTransaction:
     id: int
     timestamp: int
     trade: bool
+    reason: LITERAL_TRANSACTION_REASON
     ack: bool
     messages: list[str] = field(default_factory=list)
