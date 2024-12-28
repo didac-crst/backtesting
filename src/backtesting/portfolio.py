@@ -890,6 +890,17 @@ class Portfolio(Asset):
         transactions_df = self.Ledger.transactions_df.copy()
         transactions_df.drop(["Commission"], axis=1, inplace=True)
         return transactions_df[transactions_df.Symbol != self.symbol]
+    
+    @property
+    @check_property_update
+    def transactions_info(self) -> pd.DataFrame:
+        """
+        Property to get the historical transactions as a DataFrame with timestamps.
+
+        """
+        transactions_df = self.historical_transactions.copy()
+        transactions_df = transactions_df[['Symbol', 'Timestamp', 'Action', 'Reason', 'Amount', 'Price', 'Traded']]
+        return transactions_df
 
     @property
     @check_property_update
@@ -1356,6 +1367,10 @@ class Portfolio(Asset):
         volatility_df = self.volatility_displayable.copy()
         resampled_volatility_df = self.resample_data(volatility_df, agg_type='mean')
         max_volatility = resampled_volatility_df.abs().max().max()
+        # Retrieve the transactions info for the scatter plot
+        transactions_info = self.transactions_info.copy()
+        transactions_info['Datetime'] = pd.to_datetime(transactions_info['Timestamp'], unit="s")
+        transactions_info['Size'] = transactions_info['Traded'].astype(int).abs()
         for i, asset in enumerate(assets_list):
             ax = axs[i]
             # Create a GridSpec with 2 rows and 1 column
@@ -1412,40 +1427,50 @@ class Portfolio(Asset):
                 if prices.max() > 1000:
                     ax_main1.yaxis.set_major_formatter(FuncFormatter(thousands))
                 # Plot the transactions
-                transactions = self.ledger_transactions
-                transactions_asset = pd.DataFrame(transactions[asset]).rename(columns={asset: "amount"})
-                # Records with zero amount are absences of transactions
-                transactions_asset = transactions_asset[transactions_asset["amount"] != 0]
-                if len(transactions_asset) > 0:
-                    transactions_asset['timestamp'] = transactions_asset.index
-                    transactions_asset['datetime'] = pd.to_datetime(transactions_asset['timestamp'], unit="s")
-                    transactions_asset['price'] = transactions_asset['timestamp'].apply(lambda x: self.get_price_asset_on_timestamp(asset, x))
-                    transactions_asset['size'] = transactions_asset['amount'].astype(int).abs()
-                    transactions_asset['label'] = transactions_asset['amount'].apply(lambda x: "Buy" if x > 0 else "Sell")
-                    for transaction_type in ["Buy", "Sell"]:
-                        if transaction_type == "Buy":
-                            marker = '^'
-                            color = 'blue'
-                        else:
-                            marker = 'v'
-                            color = 'red'
-                        transactions_asset_type = transactions_asset[transactions_asset['label'] == transaction_type]
-                        ax_main2.scatter(transactions_asset_type['datetime'], transactions_asset_type['price'], color=color, alpha=0.3, s=transactions_asset_type['size'], marker=marker, label=None)
+                # Define marker and color mappings
+                marker_map = {
+                    "BUY": {"INVESTMENT": 'o', "SIGNAL": '^'},
+                    "SELL": {"SIGNAL": 'v', "LIQUIDITY": 'x', "VOLATILITY": 'h'}
+                }
+                color_map = {"BUY": 'blue', "SELL": 'red'}
+                transactions_asset = transactions_info[transactions_info.Symbol == asset].copy()
+                if not transactions_asset.empty:
+                    for transaction_type, reasons in marker_map.items():
+                        color = color_map[transaction_type]
+                        for transaction_reason, marker in reasons.items():
+                            transactions_asset_filtered = transactions_asset[
+                                (transactions_asset['Action'] == transaction_type) & 
+                                (transactions_asset['Reason'] == transaction_reason)
+                            ]
+                            if not transactions_asset_filtered.empty:
+                                ax_main2.scatter(
+                                    transactions_asset_filtered['Datetime'], 
+                                    transactions_asset_filtered['Price'], 
+                                    color=color, 
+                                    alpha=0.1, 
+                                    s=transactions_asset_filtered['Size'], 
+                                    marker=marker, 
+                                    label=None
+                                )
             # Display different title for the total and the assets
             if asset == "Total":
                 info = f"(Gains: {display_price(self.gains, symbol)} | ROI: {display_percentage(self.roi)})"
                 ax.set_title(f"Portfolio Value Over Time {info}")
                 ax_main1.legend(fontsize='small', loc='upper left')
             else:
+                scatter_signals = ['Investment', 'Buy Signal', 'Sell Signal', 'Sell Liquidity', 'Sell Volatility']
                 info = f"(Price Growth: {display_percentage(self.get_asset_growth(asset))})"
                 ax.set_title(f"Price Over Time [{asset}] {info}")
                 # Combine legends from both axes
                 lines, labels = ax_main1.get_legend_handles_labels()
                 lines2, labels2 = ax_main2.get_legend_handles_labels()
                 # Create custom legend handles for scatter plots with fixed size
-                custom_lines = [Line2D([0], [0], color='blue', alpha=0.3, marker='^', linestyle='None', markersize=10, label='Buy'),
-                                Line2D([0], [0], color='red', alpha=0.3, marker='v', linestyle='None', markersize=10, label='Sell')]
-                ax_main2.legend(lines + lines2 + custom_lines, labels + labels2 + ['Buy', 'Sell'], fontsize='small')
+                custom_lines = [Line2D([0], [0], color='blue', alpha=0.3, marker='o', linestyle='None', markersize=10, label=scatter_signals[0]),
+                                Line2D([0], [0], color='blue', alpha=0.3, marker='^', linestyle='None', markersize=10, label=scatter_signals[1]),
+                                Line2D([0], [0], color='red', alpha=0.3, marker='v', linestyle='None', markersize=10, label=scatter_signals[2]),
+                                Line2D([0], [0], color='red', alpha=0.3, marker='x', linestyle='None', markersize=10, label=scatter_signals[3]),
+                                Line2D([0], [0], color='red', alpha=0.3, marker='h', linestyle='None', markersize=10, label=scatter_signals[4])]
+                ax_main2.legend(lines + lines2 + custom_lines, labels + labels2 + scatter_signals, fontsize='small')
             # Create the narrow chart (bottom)
             # But we only display it if there are signals for the asset
             ax_narrow1 = fig.add_subplot(gs[1], sharex=ax_main1)
