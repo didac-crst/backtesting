@@ -114,7 +114,9 @@ class Portfolio(Asset):
                 "Total traded",
                 "Commissions",
                 "Performance",
-                "Gains",
+                "T. Gains",
+                "R. Gains",
+                "P. Gains",
                 "Currency growth",
                 "Hold gains",
             ]
@@ -125,6 +127,12 @@ class Portfolio(Asset):
         # for asset_symbol in self.assets_list:
         for asset_symbol in self.assets_traded_list:
             Currency = self.assets[asset_symbol]
+            total_gains_asset = gains_assets[asset_symbol]
+            realized_gains_asset = self.get_realized_gains_single_asset(asset_symbol)
+            paper_gains = total_gains_asset - realized_gains_asset
+            # Make paper_gains 0.0 if the value is really small for display purposes
+            if abs(paper_gains) < 0.01:
+                paper_gains = 0.0
             # Display only the assets with transactions
             # if self.transactions_count(asset_symbol) > 0:
             data.append(
@@ -135,7 +143,9 @@ class Portfolio(Asset):
                     display_price(self.transactions_sum(asset_symbol), self.symbol),
                     display_price(Currency.commissions_sum, self.symbol),
                     display_percentage(performance_assets[asset_symbol]),
-                    display_price(gains_assets[asset_symbol], self.symbol),
+                    display_price(total_gains_asset, self.symbol),
+                    display_price(realized_gains_asset, self.symbol),
+                    display_price(paper_gains, self.symbol),
                     display_percentage(self.get_asset_growth(asset_symbol)),
                     display_price(hold_gains[asset_symbol], self.symbol),
                     gains_assets[asset_symbol], # Only for sorting #1
@@ -188,6 +198,9 @@ class Portfolio(Asset):
         else:
             assets_value = self.assets_value
             assets_equity_ratio = assets_value / equity_value
+            total_gains = self.gains
+            realized_gains = self.realized_gains_sum
+            paper_gains = total_gains - realized_gains
             text = (
                 f"{text}"
                 f"  -> Assets value: {display_price(self.assets_value, self.symbol)}"
@@ -195,12 +208,14 @@ class Portfolio(Asset):
                 f"  -> Equity value: {display_price(self.equity_value, self.symbol)}\n"
                 f"  -> Transactions: {display_integer(self.transactions_count())}\n"
                 f"  -> Amount traded: {display_price(self.transactions_sum(), self.symbol)}\n"
-                f"  -> Gains: {display_price(self.gains, self.symbol)}\n"
                 f"  -> ROI: {display_percentage(self.roi)}\n"
+                f"  -> Total Gains: {display_price(total_gains, self.symbol)}\n"
+                f"  -> Realized Gains: {display_price(realized_gains, self.symbol)}\n"
+                f"  -> Paper Gains: {display_price(paper_gains, self.symbol)}\n"
                 f"  -> Commissions: {display_price(self.total_commissions, self.symbol)}\n"
                 f"  -> Commissions/Gains ratio: {self.commission_gains_ratio_str}\n"
-                f"  -> Hold Gains (Theoretical): {display_price(self.hold_gains, self.symbol)}\n"
                 f"  -> Hold ROI (Theoretical): {display_percentage(self.hold_roi)}\n"
+                f"  -> Hold Gains (Theoretical): {display_price(self.hold_gains, self.symbol)}\n"
                 f"  -> ROI Performance (vs Hold): {display_percentage(self.roi_vs_hold_roi)}\n"
                 f"  -> Assets Traded: "
             )
@@ -456,7 +471,7 @@ class Portfolio(Asset):
         gross_amount_quote = amount_quote + commission_quote
         self.check_amount(gross_amount_quote)
         # Add the commissions to the commissions amortization
-        self.assets[symbol]._add_commissions_in_commissions_amortization(commission_quote)
+        self.assets[symbol]._add_commissions_in_commissions_to_deduct(commission_quote)
         # Update the average purchase price of the asset
         self._update_purchase_price_avg(symbol, price, amount_base)
         # Here starts the real transaction
@@ -494,7 +509,7 @@ class Portfolio(Asset):
         amount_base = amount_quote / price
         commission_quote = amount_quote * self.commission_trade
         # Deduct the commissions from the commissions amortization
-        deducted_commissions = self.assets[symbol]._deduct_commissions_from_comissions_amortization(amount_quote)
+        deducted_commissions = self.assets[symbol]._deduct_commissions(amount_quote)
         deducted_commissions += commission_quote
         # Record the transaction in the ledger for the asset
         # The transaction is not acknowledged yet
@@ -629,6 +644,36 @@ class Portfolio(Asset):
 
         """
         return [self.symbol, *self.assets_to_display_list]
+    
+    @property
+    @check_property_update
+    def realized_gains_assets(self) -> dict[str, float]:
+        """
+        Property to get the realized gains for each asset in the portfolio.
+
+        """
+        return self.Ledger.sales_profit_loss_df.groupby('Symbol')['Profit_Netto'].sum()
+    
+    def get_realized_gains_single_asset(self, symbol: str) -> float:
+        """
+        Method to get the realized gains for a single asset in the portfolio.
+        
+        In case of not having any record registered yet, it returns 0 to avoid errors.
+
+        """
+        if symbol in self.realized_gains_assets:
+            return float(self.realized_gains_assets[symbol])
+        else:
+            return 0.0
+    
+    @property
+    @check_property_update
+    def realized_gains_sum(self) -> float:
+        """
+        Property to get the total realized gains in the portfolio.
+
+        """
+        return self.realized_gains_assets.sum()
 
     @property
     @check_property_update

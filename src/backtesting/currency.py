@@ -21,7 +21,7 @@ class Currency(Asset):
         super().__post_init__()
         self.price = 0.0
         self.purchase_price_avg = np.nan
-        self.commissions_amortization = 0.0
+        self.commissions_to_deduct = 0.0
 
     @check_positive
     def _update_price(self, price: float) -> None:
@@ -40,17 +40,17 @@ class Currency(Asset):
         self.purchase_price_avg = float(purchase_price)
     
     @check_positive
-    def _add_commissions_in_commissions_amortization(self, commissions: float) -> None:
+    def _add_commissions_in_commissions_to_deduct(self, commissions: float) -> None:
         """
         Method to add commissions to the commissions amortization.
         
         This is needed to calculate the real profit when selling the asset.
 
         """
-        self.commissions_amortization += commissions
+        self.commissions_to_deduct += commissions
     
     @check_positive
-    def _deduct_commissions_from_comissions_amortization(self, amount_sold_quote: float) -> float:
+    def _deduct_commissions(self, amount_sold_quote: float) -> float:
         """
         Method to deduct commissions from the commissions amortization.
         
@@ -61,8 +61,8 @@ class Currency(Asset):
         amount_sold_base = amount_sold_quote / self.price
         balance = self.balance
         proportion_sold = amount_sold_base / balance
-        deducted_commissions = self.commissions_amortization * proportion_sold
-        self.commissions_amortization -= deducted_commissions
+        deducted_commissions = self.commissions_to_deduct * proportion_sold
+        self.commissions_to_deduct -= deducted_commissions
         return deducted_commissions
 
     @check_positive
