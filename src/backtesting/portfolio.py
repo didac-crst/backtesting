@@ -647,6 +647,23 @@ class Portfolio(Asset):
     
     @property
     @check_property_update
+    def realized_gains_displayable(self) -> pd.DataFrame:
+        """
+        Property to get the realized gains for each asset in the portfolio with a positive balance.
+
+        """
+        # We use the ledger index to have a complete DataFrame with all the timestamps
+        # sales_profit_loss_df has only the timestamps when sales happen, meaning that not all the timestamps are present
+        timestamp_indexes = pd.DataFrame(self.ledger_equity.index, columns=['Timestamp'])
+        realized_gains=self.Ledger.sales_profit_loss_df.copy()
+        realized_gains_complete = pd.merge(timestamp_indexes, realized_gains, on='Timestamp', how='left').fillna(0.0)
+        realized_gains_complete['Datetime'] = pd.to_datetime(realized_gains_complete['Timestamp'], unit='s')
+        realized_gains_pivot = realized_gains_complete.pivot_table(index='Datetime', columns='Symbol', values='Profit_Netto', aggfunc='sum', observed=True)
+        realized_gains_pivot.fillna(0, inplace=True)
+        return realized_gains_pivot
+    
+    @property
+    @check_property_update
     def realized_gains_assets(self) -> dict[str, float]:
         """
         Property to get the realized gains for each asset in the portfolio.
@@ -1761,6 +1778,97 @@ class Portfolio(Asset):
             # Show the plot
             plt.show()
     
+    def plot_realized_gains(self, fig_ax: Optional[tuple] = None) -> None:
+        """
+        Method to plot the realized gains of the portfolio.
+
+        """
+        if fig_ax is not None:
+            fig, ax = fig_ax
+        else:
+            # Create a figure with multiple subplots
+            fig = plt.figure(figsize=(15, 5))
+            # Create an Axes object for the figure
+            ax = fig.add_subplot(111)   
+            # Need to recalculate the equity to have the correct values
+            # self.calculate_ledger_equity()
+
+        label_colors = self.label_colors.copy()
+
+        ax.axhline(y=0, color='black', linewidth=1)
+
+        color_other = label_colors['other']
+        realized_gains = self.realized_gains_displayable.copy()
+        realized_gains_assets = realized_gains.columns.tolist()
+        
+        # Cumulative Realized Gains
+        ax2 = ax.twinx()
+        realized_gains_cum = realized_gains.sum(axis=1).cumsum()
+        realized_gains_cum = self.resample_data(realized_gains_cum, agg_type='last')
+        datetime = realized_gains_cum.index
+        cum_gains = realized_gains_cum.values
+        ax2.plot(datetime, cum_gains, color='black', alpha=1.0, linewidth=1)
+        # Fill where the differences
+        ax2.fill_between(datetime, cum_gains, where=(cum_gains > 0), color="green", alpha=0.1)
+        ax2.fill_between(datetime, cum_gains, where=(cum_gains < 0), color="red", alpha=0.1)
+        
+        # Granular Realized Gains
+        # Resample profits and losses to have a better visualization
+        # It is needed to split profits and losses to have a better visualization
+        # When resampling profits and losses they would cancel each other in the same sampling window
+        resample_agg_type = 'sum'
+        factor = 5
+        profits_df = realized_gains[realized_gains > 0].fillna(0)
+        resampled_profits_df = self.resample_data(profits_df, agg_type=resample_agg_type, factor=factor)
+        losses_df = realized_gains[realized_gains < 0].fillna(0)
+        resampled_losses_df = self.resample_data(losses_df, agg_type=resample_agg_type, factor=factor)
+        # Initialize a variable to keep track of the bottom position for profits
+        bottoms_profits = np.zeros(len(resampled_profits_df))
+        # Initialize a variable to keep track of the bottom position for losses
+        bottoms_losses = np.zeros(len(resampled_losses_df))
+        # We only want to display the top and bottom performers
+        for column in self.assets_traded_list:
+            # We only want to display the top and bottom performers
+            # We need to make sure that the asset has realized gains
+            if (column in self.assets_to_display_list) and (column in realized_gains_assets):
+                color = label_colors[column]
+                # Plot the bar chart buys
+                ax.bar(resampled_profits_df.index, resampled_profits_df[column], label=column, bottom=bottoms_profits, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
+                # Plot the bar chart sells
+                ax.bar(resampled_losses_df.index, resampled_losses_df[column], bottom=bottoms_losses, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
+                # Update bottoms for buys and sells separately if needed
+                bottoms_profits += resampled_profits_df[column]
+                bottoms_losses += resampled_losses_df[column]
+        # For the other assets, we aggregate them
+        assets_to_aggregate = [asset for asset in self.assets_traded_list if (asset not in self.assets_to_display_list) and (asset in realized_gains_assets)]
+        resampled_profits_agg_df = resampled_profits_df[assets_to_aggregate].sum(axis=1)
+        resampled_losses_agg_df = resampled_losses_df[assets_to_aggregate].sum(axis=1)
+        color = label_colors[self.other_assets]
+        # Plot the bar chart buys
+        ax.bar(resampled_profits_agg_df.index, resampled_profits_agg_df, label=self.other_assets, bottom=bottoms_profits, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
+        # Plot the bar chart sells
+        ax.bar(resampled_losses_agg_df.index, resampled_losses_agg_df, bottom=bottoms_losses, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
+        ax.set_title("Realized Gains Over Time")
+        ax.set_xlabel("Time")
+        ax.set_ylabel(f"Amount ({self.symbol})")
+        ax2.set_ylabel(f"Cumulative Amount ({self.symbol})")
+        ax.grid(True)
+        # To enable the grid for minor ticks
+        ax.xaxis.set_minor_locator(AutoMinorLocator())
+        ax.yaxis.set_minor_locator(AutoMinorLocator())
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
+        ax.yaxis.set_major_formatter(FuncFormatter(thousands))
+        plt.setp(ax.get_xticklabels(), rotation=-20, ha='left')
+        ax.grid(which="both")
+        ax.grid(which="minor", alpha=0.3)
+        ax.grid(which="major", alpha=0.5)
+        ax.legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
+
+        if fig_ax is None:
+            # Show the plot
+            plt.show()
+    
     @property
     def assets_to_display_list(self) -> None:
         """
@@ -1790,7 +1898,7 @@ class Portfolio(Asset):
         """
         # Create an Axes object for the figure
         fig, ax = plt.subplots(
-            nrows=3, ncols=1, figsize=(15, 15), sharex=True
+            nrows=4, ncols=1, figsize=(15, 20), sharex=True
         )
 
         # Need to recalculate the equity to have the correct values
@@ -1799,5 +1907,6 @@ class Portfolio(Asset):
         self.plot_benchmark((fig, ax[0]))
         self.plot_assets_share((fig, ax[1]))
         self.plot_transactions((fig, ax[2]))
+        self.plot_realized_gains((fig, ax[3]))
 
         plt.show()
