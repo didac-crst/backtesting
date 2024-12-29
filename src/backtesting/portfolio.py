@@ -1576,7 +1576,7 @@ class Portfolio(Asset):
         # Show the plot
         plt.show()
 
-    def plot_benchmark(self, fig_ax: Optional[tuple] = None) -> None:
+    def plot_benchmark(self, fig_ax: Optional[tuple] = None, log_scale: bool = True) -> None:
         """
         Method to plot the portfolio equity and the assets' change over time.
 
@@ -1596,13 +1596,19 @@ class Portfolio(Asset):
         historical_equity = self.Ledger.equity_df
         resampled_historical_equity = self.resample_data(historical_equity, agg_type='mean')
         equity = self.normalize_to_growth(resampled_historical_equity["Total"])
+        # To make it logarithmic, we add 1 to the equity
+        baseline = 0
+        if log_scale:
+            equity = equity + 1
+            baseline = 1
         timestamp = equity.index
         datetime = pd.to_datetime(timestamp, unit="s")
         label = f"Equity ({display_percentage(self.roi)})"
         ax.plot(datetime, equity, label=label, color="black", linewidth=1)
         # Fill areas where y < 0 with red and y > 0 with green
-        ax.fill_between(datetime, equity, where=(equity > 0), color="green", alpha=0.1)  # type: ignore
-        ax.fill_between(datetime, equity, where=(equity < 0), color="red", alpha=0.1)  # type: ignore
+        # If log_scale is True, we need to fill the areas where y < 1 with red and y > 1 with green
+        ax.fill_between(datetime, equity, baseline, where=(equity > baseline), color="green", alpha=0.1)  # type: ignore
+        ax.fill_between(datetime, equity, baseline, where=(equity < baseline), color="red", alpha=0.1)  # type: ignore
 
         # CURRENCY PRICES
         historical_prices = self.historical_prices_pivot_displayable.copy()
@@ -1615,6 +1621,9 @@ class Portfolio(Asset):
                     f"{asset} ({display_percentage(self.get_asset_growth(asset))})"
                 )
                 asset_prices = self.normalize_to_growth(resampled_historical_prices[asset])
+                # To make it logarithmic, we add 1 to the asset prices
+                if log_scale:
+                    asset_prices = asset_prices + 1
                 timestamp = asset_prices.index
                 datetime = pd.to_datetime(timestamp, unit="s")
                 color = label_colors[asset]
@@ -1627,6 +1636,9 @@ class Portfolio(Asset):
         theoretical_hold_equity = self.historical_theoretical_hold_equity
         resampled_theoretical_hold_equity = self.resample_data(theoretical_hold_equity, agg_type='mean')
         theoretical_equity = self.normalize_to_growth(resampled_theoretical_hold_equity)
+        # To make it logarithmic, we add 1 to the theoretical equity
+        if log_scale:
+            theoretical_equity = theoretical_equity + 1
         timestamp = theoretical_equity.index
         datetime = pd.to_datetime(timestamp, unit="s")
         label = f"Hold ({display_percentage(self.hold_roi)})"
@@ -1640,6 +1652,8 @@ class Portfolio(Asset):
         ax.set_title("Equity and Currency Change Over Time")
         ax.set_xlabel("Time")
         ax.set_ylabel("Growth")
+        if log_scale:
+            ax.set_yscale("log")
         ax.grid(True)
         # To enable the grid for minor ticks
         ax.xaxis.set_minor_locator(AutoMinorLocator())
@@ -1919,7 +1933,7 @@ class Portfolio(Asset):
         colors = {label: cmap(i) for i, label in enumerate(labels)}
         return colors
 
-    def plot_summary(self) -> None:
+    def plot_summary(self, log_scale: bool = True) -> None:
         """
         Method to plot the portfolio summary.
 
@@ -1932,7 +1946,7 @@ class Portfolio(Asset):
         # Need to recalculate the equity to have the correct values
         # self.calculate_ledger_equity()
 
-        self.plot_benchmark((fig, ax[0]))
+        self.plot_benchmark((fig, ax[0]), log_scale)
         self.plot_assets_share((fig, ax[1]))
         self.plot_transactions((fig, ax[2]))
         self.plot_realized_gains((fig, ax[3]))
