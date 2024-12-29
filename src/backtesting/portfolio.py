@@ -23,6 +23,7 @@ from .support import (
     display_pretty_table,
     check_property_update,
     move_to_end,
+    max_2_numbers,
 )
 from .record_objects import LITERAL_TRANSACTION_REASON
 
@@ -656,10 +657,15 @@ class Portfolio(Asset):
         # sales_profit_loss_df has only the timestamps when sales happen, meaning that not all the timestamps are present
         timestamp_indexes = pd.DataFrame(self.ledger_equity.index, columns=['Timestamp'])
         realized_gains=self.Ledger.sales_profit_loss_df.copy()
-        realized_gains_complete = pd.merge(timestamp_indexes, realized_gains, on='Timestamp', how='left').fillna(0.0)
+        realized_gains_complete = pd.merge(timestamp_indexes, realized_gains, on='Timestamp', how='left')
+        realized_gains_complete['Profit_Netto'] = realized_gains_complete['Profit_Netto'].fillna(0.0)
+        # In order to have a complete DataFrame with all the assets, we need to fill the NaN values with some value
+        # After pivotting the DataFrame, we will fill delete the given column
+        realized_gains_complete['Symbol'] = realized_gains_complete['Symbol'].fillna('_column_to_delete')
         realized_gains_complete['Datetime'] = pd.to_datetime(realized_gains_complete['Timestamp'], unit='s')
         realized_gains_pivot = realized_gains_complete.pivot_table(index='Datetime', columns='Symbol', values='Profit_Netto', aggfunc='sum', observed=True)
         realized_gains_pivot.fillna(0, inplace=True)
+        realized_gains_pivot.drop(columns='_column_to_delete', inplace=True)
         return realized_gains_pivot
     
     @property
@@ -1420,11 +1426,53 @@ class Portfolio(Asset):
             ax = axs[i]
             # Create a GridSpec with 2 rows and 1 column
             # This is needed to make a second bottom narrower chart.
-            gs = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=ax.get_subplotspec(), height_ratios=[6, 2], hspace=0)
+            gs = gridspec.GridSpecFromSubplotSpec(3, 1, subplot_spec=ax.get_subplotspec(), height_ratios=[3, 6, 2], hspace=0.1)
             ax.set_yticklabels([])
             ax.set_yticks([])
             ax.grid(False)
-            ax_main1 = fig.add_subplot(gs[0])
+            realized_gains = self.realized_gains_displayable.copy()
+            realized_gains_assets = realized_gains.columns.tolist()
+            if (asset != "Total") and (asset in realized_gains_assets):
+                # Realized Gains Plot
+                # Granular Realized Gains
+                # Resample profits and losses to have a better visualization
+                # It is needed to split profits and losses to have a better visualization
+                # When resampling profits and losses they would cancel each other in the same sampling window
+                resample_agg_type = 'sum'
+                factor = 5
+                ax_top = fig.add_subplot(gs[0], sharex=ax)
+                asset_realized_gains = realized_gains[asset]
+                realized_profit = asset_realized_gains[asset_realized_gains > 0].fillna(0)
+                resampled_realized_profit = self.resample_data(realized_profit, agg_type=resample_agg_type, factor=factor)
+                resampled_realized_profit = resampled_realized_profit[resampled_realized_profit != 0]
+                realized_loss = asset_realized_gains[asset_realized_gains < 0].fillna(0)
+                resampled_realized_loss = self.resample_data(realized_loss, agg_type=resample_agg_type, factor=factor)
+                resampled_realized_loss = resampled_realized_loss[resampled_realized_loss != 0]
+                # Plot the bar chart profits
+                # To avoid displaying not useful legends, we only plot the bars if there are values
+                if len(resampled_realized_profit) > 0:
+                    ax_top.bar(resampled_realized_profit.index, resampled_realized_profit.values, width=self.time_bar_width, color='green', alpha=1.0, edgecolor='black', label='Realized Profits')
+                # Plot the bar chart losses
+                # To avoid displaying not useful legends, we only plot the bars if there are values
+                if len(resampled_realized_loss) > 0:
+                    ax_top.bar(resampled_realized_loss.index, resampled_realized_loss.values, width=self.time_bar_width, color='red', alpha=1.0, edgecolor='black', label='Realized Losses')
+                ax_top.grid(True)
+                ax_top.axhline(y=0, color='black', linewidth=1)
+                value_ylim = max_2_numbers(resampled_realized_profit.abs().max(), resampled_realized_loss.abs().max()) * 1.2
+                ax_top.set_ylim(-value_ylim, value_ylim)
+                ax_top.grid(True)
+                ax_top.xaxis.set_major_locator(mdates.AutoDateLocator())
+                ax_top.xaxis.set_minor_locator(AutoMinorLocator())
+                ax_top.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
+                ax_top.set_ylabel("R. Gains")
+                ax_top.grid(which="both")
+                ax_top.grid(which="minor", alpha=0.3)
+                ax_top.grid(which="major", alpha=0.5)
+                ax_top.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
+                ax_top.legend(fontsize='small')
+                
+            # Main Plot            
+            ax_main1 = fig.add_subplot(gs[1], sharex=ax)
             # Ploting the equity of the asset
             datetime = resampled_historical_equity.index
             total_equity = resampled_historical_equity[asset]
@@ -1518,7 +1566,7 @@ class Portfolio(Asset):
                 ax_main2.legend(lines + lines2 + custom_lines, labels + labels2 + scatter_signals, fontsize='small')
             # Create the narrow chart (bottom)
             # But we only display it if there are signals for the asset
-            ax_narrow1 = fig.add_subplot(gs[1], sharex=ax_main1)
+            ax_narrow1 = fig.add_subplot(gs[2], sharex=ax)
             if (asset in resampled_signals_df.columns) or (asset == "Total"):
                 datetime = resampled_signals_df.index
                 if asset != "Total":
@@ -1892,9 +1940,9 @@ class Portfolio(Asset):
             # We need to make sure that the asset has realized gains
             if (column in self.assets_to_display_list) and (column in realized_gains_assets):
                 color = label_colors[column]
-                # Plot the bar chart buys
+                # Plot the bar chart profits
                 ax1.bar(resampled_profits_df.index, resampled_profits_df[column], label=column, bottom=bottoms_profits, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
-                # Plot the bar chart sells
+                # Plot the bar chart losses
                 ax1.bar(resampled_losses_df.index, resampled_losses_df[column], bottom=bottoms_losses, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
                 # Update bottoms for buys and sells separately if needed
                 bottoms_profits += resampled_profits_df[column]

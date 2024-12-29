@@ -1,4 +1,5 @@
 import itertools 
+import math
 import random
 from time import time
 from typing import Optional, Callable, Union
@@ -14,6 +15,18 @@ def now_ms() -> int:
 
     """
     return int(time() * 1000)
+
+
+def max_2_numbers(a, b):
+    """
+    Function to get the maximum of two values, ignoring NaN values.
+    
+    """
+    if math.isnan(a):
+        return b
+    if math.isnan(b):
+        return a
+    return max(a, b)
 
 def move_to_end(lst, element):
     """
