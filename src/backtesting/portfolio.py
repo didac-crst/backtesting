@@ -152,7 +152,7 @@ class Portfolio(Asset):
                 ]
             )
         return display_pretty_table(data, quote_currency= self.symbol, padding=6, sorting_columns=1)
-    
+
     @property
     def period(self) -> str:
         """
@@ -1168,6 +1168,25 @@ class Portfolio(Asset):
         assets = self.gains_assets
         return assets.nsmallest(n)
     
+    def relevant_assets(self, n: int) -> pd.DataFrame:
+        """
+        Method to get the most relevant assets in the portfolio.
+        
+        It gets N top and N bottom performers and returns the list of the most relevant assets.
+        
+        """
+        def remove_duplicates_keep_order(lst):
+            seen = set()
+            return [x for x in lst if not (x in seen or seen.add(x))]
+        top_performers = self.top_performers(n=n)
+        top_performers_list = top_performers.index.tolist()
+        bottom_performers = self.bottom_performers(n=n)
+        bottom_performers_list = bottom_performers.index.tolist()
+        bottom_performers_list.reverse()
+        edge_performers_list = top_performers_list + bottom_performers_list
+        edge_performers_list = remove_duplicates_keep_order(edge_performers_list)
+        return edge_performers_list
+    
     @property
     @check_property_update
     def historical_theoretical_hold_equity(self) -> pd.Series:
@@ -1349,14 +1368,23 @@ class Portfolio(Asset):
     
     # Portfolio ploting methods ------------------------------------------------
 
-    def plot_portfolio(self) -> None:
+    def plot_portfolio(self, assets: Union[int,str,list[str]] = 5) -> None:
         """
         Method to plot the portfolio equity and the assets' prices over time.
 
         """
+        # We need to know which assets to plot
+        if isinstance(assets, int):
+            assets_list = self.relevant_assets(assets)
+        elif isinstance(assets, str):
+            assets_list = [assets]
+        elif isinstance(assets, list):
+            assets_list = assets
+
         # Create a figure with multiple subplots
         symbol = self.symbol
-        assets_list = ["Total"] + self.assets_traded_list
+        # assets_list = ["Total"] + self.assets_traded_list
+        assets_list = ["Total"] + assets_list
         num_plots = len(assets_list)
         h_size = num_plots * 5
         fig, axs = plt.subplots(
