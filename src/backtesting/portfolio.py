@@ -1834,17 +1834,24 @@ class Portfolio(Asset):
             ax = fig.add_subplot(111)   
             # Need to recalculate the equity to have the correct values
             # self.calculate_ledger_equity()
+        gs = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=ax.get_subplotspec(), height_ratios=[1, 1], hspace=0.1)
+        ax.set_yticklabels([])
+        ax.set_yticks([])
+        ax.grid(False)
+        ax1 = fig.add_subplot(gs[0], sharex=ax)
+        ax2 = fig.add_subplot(gs[1], sharex=ax)
 
         label_colors = self.label_colors.copy()
 
-        ax.axhline(y=0, color='black', linewidth=1)
+        ax1.axhline(y=0, color='black', linewidth=1)
+        ax2.axhline(y=0, color='black', linewidth=1)
 
         color_other = label_colors['other']
         realized_gains = self.realized_gains_displayable.copy()
         realized_gains_assets = realized_gains.columns.tolist()
         
         # Cumulative Realized Gains
-        ax2 = ax.twinx()
+        # ax2 = ax.twinx()
         realized_gains_cum = realized_gains.sum(axis=1).cumsum()
         realized_gains_cum = self.resample_data(realized_gains_cum, agg_type='last')
         datetime = realized_gains_cum.index
@@ -1875,9 +1882,9 @@ class Portfolio(Asset):
             if (column in self.assets_to_display_list) and (column in realized_gains_assets):
                 color = label_colors[column]
                 # Plot the bar chart buys
-                ax.bar(resampled_profits_df.index, resampled_profits_df[column], label=column, bottom=bottoms_profits, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
+                ax1.bar(resampled_profits_df.index, resampled_profits_df[column], label=column, bottom=bottoms_profits, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
                 # Plot the bar chart sells
-                ax.bar(resampled_losses_df.index, resampled_losses_df[column], bottom=bottoms_losses, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
+                ax1.bar(resampled_losses_df.index, resampled_losses_df[column], bottom=bottoms_losses, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
                 # Update bottoms for buys and sells separately if needed
                 bottoms_profits += resampled_profits_df[column]
                 bottoms_losses += resampled_losses_df[column]
@@ -1887,26 +1894,39 @@ class Portfolio(Asset):
         resampled_losses_agg_df = resampled_losses_df[assets_to_aggregate].sum(axis=1)
         color = label_colors[self.other_assets]
         # Plot the bar chart buys
-        ax.bar(resampled_profits_agg_df.index, resampled_profits_agg_df, label=self.other_assets, bottom=bottoms_profits, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
+        ax1.bar(resampled_profits_agg_df.index, resampled_profits_agg_df, label=self.other_assets, bottom=bottoms_profits, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
         # Plot the bar chart sells
-        ax.bar(resampled_losses_agg_df.index, resampled_losses_agg_df, bottom=bottoms_losses, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
+        ax1.bar(resampled_losses_agg_df.index, resampled_losses_agg_df, bottom=bottoms_losses, width=self.time_bar_width, color=color, alpha=1.0, edgecolor='black')
         ax.set_title("Realized Gains Over Time")
         ax.set_xlabel("Time")
-        ax.set_ylabel(f"Amount ({self.symbol})")
-        ax2.set_ylabel(f"Cumulative Amount ({self.symbol})")
-        ax.grid(True)
+        ax1.set_ylabel(f"Amount ({self.symbol})")
+        ax2.set_ylabel(f"Cumulated Gains ({self.symbol})")
+        ax1.grid(True)
+        ax2.grid(True)
         # To enable the grid for minor ticks
+        # ax1.xaxis.set_minor_locator(AutoMinorLocator())
+        ax1.yaxis.set_minor_locator(AutoMinorLocator())
+        # ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax1.yaxis.set_major_formatter(FuncFormatter(thousands))
+        # ax1.set_xticks([])
+        # ax2.xaxis.set_minor_locator(AutoMinorLocator())
+        ax2.yaxis.set_minor_locator(AutoMinorLocator())
+        # ax2.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax2.yaxis.set_major_formatter(FuncFormatter(thousands))
+        # ax2.set_xticks([])
+        ax1.grid(which="both")
+        ax1.grid(which="minor", alpha=0.3)
+        ax1.grid(which="major", alpha=0.5)
+        ax1.legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
+        ax2.grid(which="both")
+        ax2.grid(which="minor", alpha=0.3)
+        ax2.grid(which="major", alpha=0.5)
+        ax1.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
+        ax2.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
         ax.xaxis.set_minor_locator(AutoMinorLocator())
-        ax.yaxis.set_minor_locator(AutoMinorLocator())
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%y-%m-%d %Hh"))
-        ax.yaxis.set_major_formatter(FuncFormatter(thousands))
         plt.setp(ax.get_xticklabels(), rotation=-20, ha='left')
-        ax.grid(which="both")
-        ax.grid(which="minor", alpha=0.3)
-        ax.grid(which="major", alpha=0.5)
-        ax.legend(fontsize='small', loc='upper left', bbox_to_anchor=(1, 1))
-
         if fig_ax is None:
             # Show the plot
             plt.show()
