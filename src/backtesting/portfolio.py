@@ -1831,12 +1831,8 @@ class Portfolio(Asset):
             # Create a figure with multiple subplots
             fig = plt.figure(figsize=(15, 5))
             # Create an Axes object for the figure
-            ax = fig.add_subplot(111)   
-            # Need to recalculate the equity to have the correct values
-            # self.calculate_ledger_equity()
+            ax = fig.add_subplot(111)
         gs = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=ax.get_subplotspec(), height_ratios=[1, 1], hspace=0.1)
-        ax.set_yticklabels([])
-        ax.set_yticks([])
         ax.grid(False)
         ax1 = fig.add_subplot(gs[0], sharex=ax)
         ax2 = fig.add_subplot(gs[1], sharex=ax)
@@ -1904,14 +1900,9 @@ class Portfolio(Asset):
         ax1.grid(True)
         ax2.grid(True)
         # To enable the grid for minor ticks
-        # ax1.xaxis.set_minor_locator(AutoMinorLocator())
         ax1.yaxis.set_minor_locator(AutoMinorLocator())
-        # ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax1.yaxis.set_major_formatter(FuncFormatter(thousands))
-        # ax1.set_xticks([])
-        # ax2.xaxis.set_minor_locator(AutoMinorLocator())
         ax2.yaxis.set_minor_locator(AutoMinorLocator())
-        # ax2.xaxis.set_major_locator(mdates.AutoDateLocator())
         ax2.yaxis.set_major_formatter(FuncFormatter(thousands))
         # ax2.set_xticks([])
         ax1.grid(which="both")
@@ -1921,6 +1912,7 @@ class Portfolio(Asset):
         ax2.grid(which="both")
         ax2.grid(which="minor", alpha=0.3)
         ax2.grid(which="major", alpha=0.5)
+        ax.tick_params(axis='y', which="both", right=False, labelright=False, left=False, labelleft=False)
         ax1.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
         ax2.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
         ax.xaxis.set_minor_locator(AutoMinorLocator())
