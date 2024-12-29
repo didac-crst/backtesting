@@ -66,6 +66,7 @@ class TradingStrategy:
     number_of_portfolios: int = 1
     max_volatility_to_buy: Optional[float] = None
     max_volatility_to_hold: Optional[float] = None
+    noise_factor: Optional[float] = None
 
     def __post_init__(self):
         self.Portfolios = []
@@ -86,11 +87,28 @@ class TradingStrategy:
         else:
             return self.Portfolios[portfolio]
     
+    def _add_noise_into_signal(self) -> None:
+        """
+        Add noise into the signal.
+
+        """
+        noise_factor = self.noise_factor
+        if noise_factor and noise_factor > 0:
+            column_name = self.triggering_feature
+            historical_prices = self.historical_prices
+            std_dev = np.std(historical_prices[column_name])
+            std_dev_factor = std_dev * noise_factor
+            historical_prices[column_name] = historical_prices[column_name] + np.random.normal(0, std_dev_factor, len(historical_prices))
+            self.historical_prices = historical_prices
+        elif noise_factor and noise_factor < 0:
+            raise ValueError("The noise_factor should be positive.")
+    
     def _prepare_historical_prices(self) -> None:
         """
         Prepare the historical prices DataFrame.
 
         """
+        self._add_noise_into_signal()
         # Get rid of the missing values in the historical prices.
         columns = ['price', 'volatility', 'label_returns']
         self.historical_prices.dropna(subset=columns, inplace=True)
