@@ -899,10 +899,12 @@ class MultiPeriodBacktest:
         tickers_size = 12
         roi_perfo = self.change_roi_performance_time_granularity(time_granularity)
         fig, ax = plt.subplots(figsize=(15, 15))
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
+        # ax.set_xticks([])
+        # ax.set_yticks([])
+        # ax.set_xticklabels([])
+        # ax.set_yticklabels([])
+        ax.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
+        ax.tick_params(axis='y', which="both", left=False, labelleft=False, right=False, labelright=False)
         gs = gridspec.GridSpecFromSubplotSpec(2, 2,
                                               subplot_spec=ax.get_subplotspec(),
                                               height_ratios=[3, 6],
@@ -914,15 +916,17 @@ class MultiPeriodBacktest:
         ax_hist_hold = fig.add_subplot(gs[0, 0])
         ax_hist_str = fig.add_subplot(gs[1, 1])
         ax_boxes = fig.add_subplot(gs[0, 1])
-        ax_hist_hold.set_xticklabels([])
-        ax_hist_str.set_yticklabels([])
+        # ax_hist_hold.set_xticklabels([])
+        # ax_hist_str.set_yticklabels([])
+        ax_hist_hold.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
+        ax_hist_str.tick_params(axis='y', which="both", left=False, labelleft=False, right=False, labelright=False)
         cols_roi = ['roi', 'hold_roi']
         rois_values = roi_perfo[cols_roi].values
         min_roi = np.min(rois_values)
         max_roi = np.max(rois_values)
         roi_span = max_roi - min_roi
-        max_displ_roi = max_roi + 0.1 * roi_span
-        min_displ_roi = min_roi - 0.1 * roi_span
+        max_displ_roi = max_roi + 0.2 * roi_span
+        min_displ_roi = min_roi - 0.2 * roi_span
         counter = 0
         periods = roi_perfo['timestart'].unique()
         number_timeperiods = len(periods)
@@ -931,6 +935,25 @@ class MultiPeriodBacktest:
         simulations_info = f"Number of time periods: {number_timeperiods}\nNumber of portfolios: {number_portfolios}\nNumber of simulations: {number_simulations}"
         ax_scatter.axhline(y=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
         ax_scatter.axvline(x=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+        # Diagonal line for reference Hold = Strategy
+        ax_scatter.plot([min_displ_roi, max_displ_roi], [min_displ_roi, max_displ_roi], color='orange', linestyle='--', linewidth=0.5, alpha=0.6)
+        ax_scatter.text(x=(min_displ_roi*0.99), y=(min_displ_roi*0.96), s='Same performance', color='orange', fontsize=9, ha='left', va='bottom', rotation=45)
+        # Diagonal line twice better than Hold
+        ax_scatter.plot([min_displ_roi, 0], [min_displ_roi/2, 0], color='green', linestyle='--', linewidth=0.5, alpha=0.6)
+        ax_scatter.plot([0, max_displ_roi], [0, max_displ_roi*2], color='green', linestyle='--', linewidth=0.5, alpha=0.6)
+        ax_scatter.text(x=(min_displ_roi*0.99), y=(min_displ_roi*0.49), s='2x Better', color='green', fontsize=9, ha='left', va='bottom', rotation=26.57)
+        # Diagonal line 5x better than Hold
+        ax_scatter.plot([min_displ_roi, 0], [min_displ_roi/5, 0], color='green', linestyle=':', linewidth=0.7, alpha=0.9)
+        ax_scatter.plot([0, max_displ_roi], [0, max_displ_roi*5], color='green', linestyle=':', linewidth=0.7, alpha=0.9)
+        ax_scatter.text(x=(min_displ_roi*0.99), y=(min_displ_roi*0.195), s='5x Better', color='green', fontsize=9, ha='left', va='bottom', rotation=11.31)
+        # Diagonal line twice worse than Hold
+        ax_scatter.plot([min_displ_roi, 0], [min_displ_roi*2, 0], color='red', linestyle='--', linewidth=0.5, alpha=0.6)
+        ax_scatter.plot([0, max_displ_roi], [0, max_displ_roi/2], color='red', linestyle='--', linewidth=0.5, alpha=0.6)
+        ax_scatter.text(x=(min_displ_roi*0.55), y=(min_displ_roi*0.99), s='2x Worse', color='red', fontsize=9, ha='left', va='bottom', rotation=63.43)
+        # Diagonal line 5x worse than Hold
+        ax_scatter.plot([min_displ_roi, 0], [min_displ_roi*5, 0], color='red', linestyle=':', linewidth=0.7, alpha=0.9)
+        ax_scatter.plot([0, max_displ_roi], [0, max_displ_roi/5], color='red', linestyle=':', linewidth=0.7, alpha=0.9)
+        ax_scatter.text(x=(min_displ_roi*0.26), y=(min_displ_roi*0.99), s='5x Worse', color='red', fontsize=9, ha='left', va='bottom', rotation=78.69)
         for timestart in periods:
             # As we have a limited number of markers, we need to recycle them.
             marker, color = self.coloured_markers[counter % self.coloured_markers_number]
@@ -985,6 +1008,7 @@ class MultiPeriodBacktest:
         ## Hold ROI
         ax_hist_hold.axvline(x=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
         ax_hist_hold.bar(bins_hold_roi[:-1], prob_hold_roi, width=np.diff(bins_hold_roi), alpha=0.3, color='blue')
+        ax_hist_hold.bar(bins_hold_roi[:-1], prob_hold_roi, width=np.diff(bins_hold_roi), alpha=0.3, color='blue')
         ax_hist_hold.set_xlim(min_displ_roi, max_displ_roi)
         ax_hist_hold.xaxis.set_minor_locator(AutoMinorLocator())
         ax_hist_hold.yaxis.set_minor_locator(AutoMinorLocator())
@@ -1003,8 +1027,9 @@ class MultiPeriodBacktest:
         ax_hist_hold_cum = ax_hist_hold.twinx()
         ax_hist_hold_cum.plot(bins_hold_roi[:-1], cum_prob_hold_roi, color='purple', label='Cumulative Probability')
         ax_hist_hold_cum.set_ylim(0, 1)
-        ax_hist_hold_cum.set_yticks([])
-        ax_hist_hold_cum.set_yticklabels([])
+        # ax_hist_hold_cum.set_yticks([])
+        # ax_hist_hold_cum.set_yticklabels([])
+        ax_hist_hold_cum.tick_params(axis='y', which="both", left=False, labelleft=False, right=False, labelright=False)
         ax_hist_hold_cum.legend(fontsize='small')
         ax_hist_hold_cum.axhline(y=0.25, color='red', linestyle='--', linewidth=0.8)
         ax_hist_hold_cum.text(x=max_roi, y=0.26, s='Cum. Prob. 25%', color='red', fontsize=9, ha='right', va='bottom')
@@ -1033,8 +1058,9 @@ class MultiPeriodBacktest:
         ax_hist_str_cum = ax_hist_str.twiny()
         ax_hist_str_cum.plot(cum_prob_strat_roi, bins_strat_roi[:-1], color='purple', label='Cumulative Probability')
         ax_hist_str_cum.set_xlim(0, 1)
-        ax_hist_str_cum.set_xticks([])
-        ax_hist_str_cum.set_xticklabels([])
+        # ax_hist_str_cum.set_xticks([])
+        # ax_hist_str_cum.set_xticklabels([])
+        ax_hist_str_cum.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
         ax_hist_str_cum.axvline(x=0.25, color='red', linestyle='--', linewidth=0.8)
         ax_hist_str_cum.text(x=0.26, y=max_roi, s='Cum. Prob. 25%', color='red', fontsize=9, ha='left', va='top', rotation=-90)
         ax_hist_str_cum.axvline(x=0.5, color='orange', linestyle='--', linewidth=0.8)
