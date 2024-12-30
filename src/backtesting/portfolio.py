@@ -103,7 +103,7 @@ class Portfolio(Asset):
     @check_property_update
     def assets_table(self) -> str:
         """
-        Property to create a pretty table with the assets' information.
+        Property to create a table with the assets' information.
 
         """
         data = [
@@ -112,7 +112,7 @@ class Portfolio(Asset):
                 "Balance",
                 "Value",
                 "Last Price",
-                "Avg. Purchase Price",
+                "Avg. Purchase",
                 "Transactions",
                 "Total traded",
                 "Commissions",
@@ -122,6 +122,7 @@ class Portfolio(Asset):
                 "P. Gains",
                 "Currency growth",
                 "Hold gains",
+                "_sort_column",
             ]
         ]
         hold_gains = self.hold_gains_assets
@@ -154,6 +155,30 @@ class Portfolio(Asset):
                     gains_assets[asset_symbol], # Only for sorting #1
                 ]
             )
+        return data
+
+    def assets_table_df(self, assets_list: Optional[list['str']] = None) -> pd.DataFrame:
+        """
+        Property to create a DataFrame with the assets' information.
+
+        """
+        data = self.assets_table
+        df = pd.DataFrame(data[1:], columns=data[0])
+        df.sort_values(by='_sort_column', ascending=False, inplace=True)
+        df.reset_index(drop=True, inplace=True)
+        df.drop(columns='_sort_column', inplace=True)
+        if assets_list is not None:
+            df = df[df['Currency'].isin(assets_list)]
+        return df
+    
+    @property
+    @check_property_update
+    def assets_pretty_table(self) -> str:
+        """
+        Property to display the assets' information as a pretty table.
+
+        """
+        data = self.assets_table
         return display_pretty_table(data, quote_currency= self.symbol, padding=6, sorting_columns=1)
 
     @property
@@ -225,7 +250,7 @@ class Portfolio(Asset):
             if len(self.assets_traded_list) > 0:
                 text += (
                     f"{len(self.assets_traded_list)}\n"
-                    f"{self.assets_table}\n\n"
+                    f"{self.assets_pretty_table}\n\n"
                 )
             # This applies only in case of having updated the prices but not having any transaction yet.
             else:

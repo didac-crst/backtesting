@@ -195,7 +195,7 @@ def display_pretty_table(data: list[list[str]], quote_currency:str, padding: int
 
     """
     table = pt.PrettyTable()
-    table.field_names = data[0]
+    table.field_names = data[0][:-sorting_columns] # Get rid of the sorting columns
     payload = data[1:]
     # Here we sort the table by the last columns
     if sorting_columns > 0:
