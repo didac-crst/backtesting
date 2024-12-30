@@ -8,6 +8,31 @@ import numpy as np
 import prettytable as pt
 from faker import Faker
 
+COLOR_PALETTE_DICT = {
+    "Blue": "#1f77b4",
+    "Sky Blue": "#87ceeb",
+    "Cyan": "#17becf",
+    "Turquoise Blue": "#00ced1",
+    "Green": "#2ca02c",
+    "Emerald Green": "#50c878",
+    "Yellow-Green": "#bcbd22",
+    "Olive Green": "#dbdb8d",
+    "Golden Yellow": "#ffce60",
+    "Mustard Yellow": "#e5ae38",
+    "Red": "#b62728",
+    "Cherry Red": "#e4002b",
+    "Coral Pink": "#ff6f61",
+    "Pink": "#e377c2",
+    "Light Pink": "#f7b6e2",
+    "Peach": "#f5b78f",
+    "Purple": "#9467bd",
+    "Lavender": "#9b59b6",
+    "Lilac": "#cbb5d4",
+    "Brown": "#8c564b",
+    "Taupe": "#c49c94",
+    "Beige": "#e7bc94",
+    "Gray": "#7f7f7f",
+}
 
 def now_ms() -> int:
     """
