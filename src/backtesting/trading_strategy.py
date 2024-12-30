@@ -9,12 +9,12 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from matplotlib.ticker import AutoMinorLocator, FixedLocator
+from matplotlib.ticker import AutoMinorLocator, FixedLocator, LogLocator, FuncFormatter
 import seaborn as sns
 from tqdm import tqdm
 
 from .portfolio import Portfolio
-from .support import get_random_name, get_coloured_markers
+from .support import get_random_name, get_coloured_markers, to_percent_log_growth
 
 DEFAULT_INITIAL_ASSETS_LIST = 10
 
@@ -52,7 +52,6 @@ class TradingStrategy:
     triggering_feature: str
     threshold_buy: float
     threshold_sell: float
-    # signals: list[str] = field(default_factory=list)
     initial_equity: Optional[float] = None
     quote_ticket_amount: float = 100.0
     maximal_assets_to_buy: int = 5
@@ -70,6 +69,7 @@ class TradingStrategy:
 
     def __post_init__(self):
         self.Portfolios = []
+        self.Signals = []
         self._prepare_historical_prices()
         self.get_timestamps_list()
         self.current_timestamp = self.initial_timestamp
@@ -103,6 +103,30 @@ class TradingStrategy:
         elif noise_factor and noise_factor < 0:
             raise ValueError("The noise_factor should be positive.")
     
+    def create_new_signal_noise(self, noise_factor: Optional[float] = None) -> pd.Series:
+        """
+        Get signal series for a given portfolio.
+        
+        The idea is to get different signals with different noise for each portfolio.
+
+        """
+        trigger_feature = self.triggering_feature
+        columns = ['base', trigger_feature]
+        historical_prices = self.historical_prices
+        signal = historical_prices[columns].copy()
+        if not noise_factor:
+            noise_factor = self.noise_factor
+        if not noise_factor:
+            # If there is no noise factor, we don't add noise.
+            self.Signals.append(signal)
+        elif noise_factor >= 0:
+            std_dev = np.std(signal[trigger_feature])
+            std_dev_factor = std_dev * noise_factor
+            signal[trigger_feature] = signal[trigger_feature] + np.random.normal(0, std_dev_factor, len(signal))
+            self.Signals.append(signal)
+        else:
+            raise ValueError("The noise_factor shouldn't be negative.")
+    
     def _prepare_historical_prices(self) -> None:
         """
         Prepare the historical prices DataFrame.
@@ -110,7 +134,7 @@ class TradingStrategy:
         """
         self._add_noise_into_signal()
         # Get rid of the missing values in the historical prices.
-        columns = ['price', 'volatility', 'label_returns']
+        columns = ['price', 'volatility', self.triggering_feature]
         self.historical_prices.dropna(subset=columns, inplace=True)
         # Reset the index of the historical
         self.historical_prices.set_index('timestamp_id', inplace=True)
@@ -304,6 +328,7 @@ class TradingStrategy:
             PF.deposit(amount=initial_equity, timestamp=self.initial_timestamp)
             self.buy_random_asset(PF)
         self.Portfolios.append(PF)
+        self.create_new_signal_noise()
 
     
     def create_portfolios(self) -> None:
@@ -342,65 +367,116 @@ class TradingStrategy:
         volatility_df.reset_index(inplace=True)
         volatility_df.rename(columns={'timestamp_id': 'timestamp', 'base': 'symbol'}, inplace=True)
         return volatility_df
+
+    # @property
+    # def current_triggers(self) -> pd.Series:
+    #     """
+    #     Property to get the current triggers of the strategy for all assets on the current timestamp.
+
+    #     """
+    #     historical_prices = self.historical_prices
+    #     current_prices = historical_prices[historical_prices.index == self.current_timestamp].copy()
+    #     current_prices.set_index('base', inplace=True)
+    #     return current_prices[self.triggering_feature]
     
     @property
-    def current_triggers(self) -> pd.Series:
+    def current_triggers(self) -> list[pd.DataFrame]:
         """
-        Property to get the current triggers of the strategy for all assets on the current timestamp.
+        Property to get the current triggers (corresponding to each portfolio) of the strategy for all assets on the current timestamp.
 
         """
-        historical_prices = self.historical_prices
-        current_prices = historical_prices[historical_prices.index == self.current_timestamp].copy()
-        current_prices.set_index('base', inplace=True)
-        return current_prices[self.triggering_feature]
+        current_signals = []
+        for signal in self.Signals:
+            signal_current = signal[signal.index == self.current_timestamp].copy()
+            signal_current.set_index('base', inplace=True)
+            current_signals.append(signal_current[self.triggering_feature])
+        return current_signals
+
+    # @property
+    # def signals_df(self) -> pd.DataFrame:
+    #     """
+    #     Convert the signals list to a DataFrame.
+
+    #     """
+    #     signals_df = self.historical_prices[['base', 'label_returns']].copy()
+    #     signals_df.reset_index(inplace=True)
+    #     signals_df.rename(columns={'timestamp_id': 'timestamp', 'base': 'symbol', 'label_returns': 'value_signal'}, inplace=True)
+    #     signals_df['trade_signal'] = 'HOLD'
+    #     signals_df.loc[signals_df['value_signal'] >= self.threshold_buy, 'trade_signal'] = 'BUY'
+    #     signals_df.loc[signals_df['value_signal'] <= self.threshold_sell, 'trade_signal'] = 'SELL'
+    #     signals_df['value_signal'] = signals_df['value_signal'].astype(np.float32)
+    #     return signals_df
     
-    @property
-    def signals_df(self) -> pd.DataFrame:
+    def prepare_signals_df(self, signal: pd.DataFrame) -> pd.DataFrame:
         """
         Convert the signals list to a DataFrame.
 
         """
-        signals_df = self.historical_prices[['base', 'label_returns']].copy()
+        trigger_feature = self.triggering_feature
+        signals_df = signal[['base', trigger_feature]].copy()
         signals_df.reset_index(inplace=True)
-        signals_df.rename(columns={'timestamp_id': 'timestamp', 'base': 'symbol', 'label_returns': 'value_signal'}, inplace=True)
+        signals_df.rename(columns={'timestamp_id': 'timestamp', 'base': 'symbol', trigger_feature: 'value_signal'}, inplace=True)
         signals_df['trade_signal'] = 'HOLD'
         signals_df.loc[signals_df['value_signal'] >= self.threshold_buy, 'trade_signal'] = 'BUY'
         signals_df.loc[signals_df['value_signal'] <= self.threshold_sell, 'trade_signal'] = 'SELL'
         signals_df['value_signal'] = signals_df['value_signal'].astype(np.float32)
         return signals_df
     
-    @property
-    def current_assets_to_buy(self) -> list:
+    # @property
+    # def current_assets_to_buy(self) -> list:
+    #     """
+    #     Get the assets to buy.
+        
+    #     When buying we have to consider a maximal number of assets to buy as there is a limited amount of cash.
+
+    #     """
+    #     current_triggers = self.current_triggers
+    #     candidates = current_triggers[current_triggers > self.threshold_buy]
+    #     # As we want to buy the assets with the highest values, we sort the candidates in descending order.
+    #     candidates.sort_values(ascending=False, inplace=True)
+    #     return candidates[:self.maximal_assets_to_buy].index.tolist()
+    
+    # @property
+    # def current_assets_to_sell(self) -> list:
+    #     """
+    #     Get the assets to sell.
+
+    #     """
+    #     current_triggers = self.current_triggers
+    #     candidates = current_triggers[current_triggers < self.threshold_sell]
+    #     # No need to sort the candidates as we are returning all the assets under the threshold.
+    #     return candidates.index.tolist()
+    
+    def current_assets_to_buy(self, i_PF: int) -> list:
         """
         Get the assets to buy.
         
         When buying we have to consider a maximal number of assets to buy as there is a limited amount of cash.
 
         """
-        current_triggers = self.current_triggers
+        current_triggers = self.current_triggers[i_PF].copy()
         candidates = current_triggers[current_triggers > self.threshold_buy]
         # As we want to buy the assets with the highest values, we sort the candidates in descending order.
         candidates.sort_values(ascending=False, inplace=True)
         return candidates[:self.maximal_assets_to_buy].index.tolist()
     
-    @property
-    def current_assets_to_sell(self) -> list:
+    def current_assets_to_sell(self, i_PF: int) -> list:
         """
         Get the assets to sell.
 
         """
-        current_triggers = self.current_triggers
+        current_triggers = self.current_triggers[i_PF].copy()
         candidates = current_triggers[current_triggers < self.threshold_sell]
         # No need to sort the candidates as we are returning all the assets under the threshold.
         return candidates.index.tolist()
     
-    def get_current_triggers_on_positive_balance_assets(self, asset_list: list) -> pd.Series:
-        """
-        Get the triggers of the assets with a positive balance.
+    # def get_current_triggers_on_positive_balance_assets(self, asset_list: list) -> pd.Series:
+    #     """
+    #     Get the triggers of the assets with a positive balance.
         
-        """
-        triggers = self.current_triggers
-        return triggers[triggers.index.isin(asset_list)]
+    #     """
+    #     triggers = self.current_triggers
+    #     return triggers[triggers.index.isin(asset_list)]
         
     def ensure_liquidity(self) -> None:
         """
@@ -408,11 +484,11 @@ class TradingStrategy:
 
         """
         sell_msg = "Selling asset to ensure liquidity."
-        for PF in self.Portfolios:
+        for i_PF, PF in enumerate(self.Portfolios):
             min_liquidity = self.minimal_liquidity_ratio * PF.equity_value
             while PF.balance < min_liquidity:
                 # We find out the owned assets with low performance.
-                triggers = self.current_triggers
+                triggers = self.current_triggers[i_PF]
                 # We get the assets that we own.
                 owned_assets = PF.positive_balance_assets_list
                 # We get the triggers of the assets that we own.
@@ -432,9 +508,10 @@ class TradingStrategy:
         """
         self.ensure_liquidity()
         volatilities = self.current_volatilities
-        for PF in self.Portfolios:
+        for i_PF, PF in enumerate(self.Portfolios):
             # ASSETS TO BUY >>>>>>>>>>>
-            for asset in self.current_assets_to_buy:
+            current_assets_to_buy = self.current_assets_to_buy(i_PF)
+            for asset in current_assets_to_buy:
                 try:
                     volatility = volatilities[volatilities.index == asset].values[0]
                     # We buy the asset only if the volatility is below the threshold.
@@ -450,7 +527,8 @@ class TradingStrategy:
                 except Exception as e:
                     print(f"[{PF.name}] [{self.current_timestamp}] [{asset}] [BUY] - Error: {e}")
             # ASSETS TO SELL IF SIGNALS >>>>>>>>>>>
-            for asset in self.current_assets_to_sell:
+            current_assets_to_sell = self.current_assets_to_sell(i_PF)
+            for asset in current_assets_to_sell:
                 try:
                     # We sell the asset only if we own the asset.
                     if asset in PF.positive_balance_assets_list:
@@ -474,8 +552,8 @@ class TradingStrategy:
         In order to make the signals available in the Portfolios, we dispatch the signals_df and volatility_df in the Portfolios.
 
         """
-        for PF in self.Portfolios:
-            PF.signals_df = self.signals_df
+        for PF, signal in zip(self.Portfolios, self.Signals):
+            PF.signals_df = self.prepare_signals_df(signal = signal)
             PF.volatility_df = self.volatility_df
 
     def run_strategy(self) -> None:
@@ -542,7 +620,7 @@ class MultiPeriodBacktest:
     threshold_sell: float
     number_timeperiods: Optional[int] = None
     time_granularity: Optional[int] = None
-    signals: list[str] = field(default_factory=list)
+    # signals: list[str] = field(default_factory=list)
     initial_equity: Optional[float] = None
     quote_ticket_amount: float = 100.0
     maximal_assets_to_buy: int = 5
@@ -556,6 +634,7 @@ class MultiPeriodBacktest:
     number_of_portfolios: int = 1
     max_volatility_to_buy: Optional[float] = None
     max_volatility_to_hold: Optional[float] = None
+    noise_factor: Optional[float] = None
     
     def __post_init__(self):
         self.backtest_performed = False
@@ -595,7 +674,7 @@ class MultiPeriodBacktest:
             triggering_feature=self.triggering_feature,
             threshold_buy=self.threshold_buy,
             threshold_sell=self.threshold_sell,
-            signals=self.signals,
+            # signals=self.signals,
             initial_equity=self.initial_equity,
             quote_ticket_amount=self.quote_ticket_amount,
             maximal_assets_to_buy=self.maximal_assets_to_buy,
@@ -608,7 +687,8 @@ class MultiPeriodBacktest:
             maximal_equity_per_asset_ratio=self.maximal_equity_per_asset_ratio,
             number_of_portfolios=self.number_of_portfolios,
             max_volatility_to_buy=self.max_volatility_to_buy,
-            max_volatility_to_hold=self.max_volatility_to_hold
+            max_volatility_to_hold=self.max_volatility_to_hold,
+            noise_factor=self.noise_factor,
         )
         return TradingStrategy_obj
         
@@ -976,7 +1056,11 @@ class MultiPeriodBacktest:
         # Customize gridlines and layout
         ax_boxes.tick_params(axis='x', labelsize=labels_size, top=True, labeltop=True, bottom=False, labelbottom=False)
         ax_boxes.tick_params(axis='y', which='both', labelsize=tickers_size, left=False, labelleft=False, right=True, labelright=True)
-        # ax_boxes.yaxis.set_minor_locator(AutoMinorLocator())
+        number_minor_ticks = 10
+        ax_boxes.yaxis.set_major_locator(LogLocator(base=2.0, numticks=10))
+        ax_boxes.yaxis.set_minor_locator(LogLocator(base=2.0, subs=np.arange(1, int(number_minor_ticks/2)) * (1/number_minor_ticks), numticks=number_minor_ticks))
+        ax_boxes.yaxis.set_major_formatter(FuncFormatter(to_percent_log_growth))
+        ax_boxes.yaxis.set_minor_formatter(FuncFormatter(to_percent_log_growth))
         ax_boxes.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray', axis='y')
         ax_boxes.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black', axis='y')
         # ax_boxes.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))

@@ -20,6 +20,7 @@ from .support import (
     now_ms,
     thousands,
     to_percent,
+    to_percent_log_growth,
     display_pretty_table,
     check_property_update,
     move_to_end,
@@ -1727,8 +1728,8 @@ class Portfolio(Asset):
             ax.set_yscale("log")
             ax.yaxis.set_major_locator(LogLocator(base=2.0, numticks=10))
             ax.yaxis.set_minor_locator(LogLocator(base=2.0, subs=np.arange(1, number_minor_ticks) * (1/number_minor_ticks), numticks=number_minor_ticks))  # Minor ticks
-            ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
-            ax.yaxis.set_minor_formatter(FuncFormatter(to_percent))
+            ax.yaxis.set_major_formatter(FuncFormatter(to_percent_log_growth))
+            ax.yaxis.set_minor_formatter(FuncFormatter(to_percent_log_growth))
         else:
             ax.yaxis.set_major_formatter(FuncFormatter(to_percent))
             ax.yaxis.set_minor_locator(AutoMinorLocator())

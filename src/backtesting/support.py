@@ -237,3 +237,12 @@ def to_percent(x: Union[int, float], pos) -> str:
 
     """
     return f"{x * 100:.0f}%"
+
+def to_percent_log_growth(x: Union[int, float], pos) -> str:
+    """
+    Function to format the y-axis tick labels as percentages for plotting.
+
+    This is used by FuncFormatter in matplotlib.
+
+    """
+    return f"{(x-1) * 100:.0f}%"
