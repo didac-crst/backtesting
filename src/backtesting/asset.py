@@ -22,7 +22,14 @@ class Asset:
         Method to check if the amount is less than the balance.
 
         """
-        if amount > self.balance:
-            raise ValueError(
-                f"[{self.name}] {self.symbol}: Insufficient funds: balance is {self.balance} and you want to spend {amount}."
-            )
+        balance = self.balance
+        if amount > balance:
+            if hasattr(self, "portfolio_symbol") and hasattr(self, "price"): 
+                price = self.price
+                balance_quote = balance * price
+                amount_quote = amount * price
+                raise ValueError(
+                    f"[{self.name}] {self.symbol}: Insufficient funds: balance is {balance} ({balance_quote} {self.portfolio_symbol}) and you want to spend {amount} ({amount_quote} {self.portfolio_symbol})."
+                )
+            else:
+                raise ValueError(f"[{self.name}] {self.symbol}: Insufficient funds: balance is {balance} and you want to spend {amount}.")
