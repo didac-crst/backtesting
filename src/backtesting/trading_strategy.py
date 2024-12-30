@@ -1036,11 +1036,11 @@ class MultiPeriodBacktest:
         ax_hist_str_cum.set_xticks([])
         ax_hist_str_cum.set_xticklabels([])
         ax_hist_str_cum.axvline(x=0.25, color='red', linestyle='--', linewidth=0.8)
-        ax_hist_str_cum.text(x=0.26, y=min_roi, s='Cum. Prob. 25%', color='red', fontsize=9, ha='left', va='bottom', rotation=-90)
+        ax_hist_str_cum.text(x=0.26, y=max_roi, s='Cum. Prob. 25%', color='red', fontsize=9, ha='left', va='top', rotation=-90)
         ax_hist_str_cum.axvline(x=0.5, color='orange', linestyle='--', linewidth=0.8)
-        ax_hist_str_cum.text(x=0.51, y=min_roi, s='Cum. Prob. 50%', color='orange', fontsize=9, ha='left', va='bottom', rotation=-90)
+        ax_hist_str_cum.text(x=0.51, y=max_roi, s='Cum. Prob. 50%', color='orange', fontsize=9, ha='left', va='top', rotation=-90)
         ax_hist_str_cum.axvline(x=0.75, color='green', linestyle='--', linewidth=0.8)
-        ax_hist_str_cum.text(x=0.76, y=min_roi, s='Cum. Prob. 75%', color='green', fontsize=9, ha='left', va='bottom', rotation=-90)
+        ax_hist_str_cum.text(x=0.76, y=max_roi, s='Cum. Prob. 75%', color='green', fontsize=9, ha='left', va='top', rotation=-90)
         # BOX PLOT
         # Simulate data (replace this with your actual data)
         simulated_compounded_returns = self.probabilistic_performance(days=time_value) + 1
