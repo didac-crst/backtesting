@@ -75,13 +75,30 @@ class TradingStrategy:
         self.current_timestamp = self.initial_timestamp
         self.assets_symbols_list = self.historical_prices['base'].unique()
         self.create_portfolios()
-        
-    def __call__(self, portfolio: int = 0) -> Portfolio:
+
+    def portfolios_overview(self) -> pd.DataFrame:
+        """
+        Get an overview of the Portfolios.
+
+        """
+        portfolios_overview_list = []
+        for PF in self.Portfolios:
+            portfolios_overview_list.append(PF.info_pd)
+        overview_df = pd.DataFrame(portfolios_overview_list)
+        overview_df.reset_index(inplace=True, drop=False)
+        overview_df.rename(columns={'index': 'Portfolio index'}, inplace=True)
+        overview_df.set_index('Name', inplace=True)
+        return overview_df.T
+
+    def __call__(self, portfolio: Optional[int] = None) -> Union[pd.DataFrame,Portfolio]:
         """
         Display a Portfolio object.
 
         """
-        if portfolio >= len(self.Portfolios):
+        # Be careful with portfolio 0, it could be assessed as False.
+        if portfolio is None:
+            return self.portfolios_overview()
+        elif portfolio >= len(self.Portfolios):
             msg = f"Portfolio {portfolio} doesn't exist - Number of Portfolios: {len(self.Portfolios)}"
             raise ValueError(msg)
         else:

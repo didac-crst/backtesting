@@ -180,7 +180,8 @@ class Portfolio(Asset):
         """
         data = self.assets_table
         return display_pretty_table(data, quote_currency= self.symbol, padding=6, sorting_columns=1)
-
+    
+    
     @property
     def period(self) -> str:
         """
@@ -190,9 +191,66 @@ class Portfolio(Asset):
         timerange = self.timerange
         start = pd.to_datetime(timerange[0], unit="s")
         end = pd.to_datetime(timerange[1], unit="s")
-        text = f"from {start} to {end}"
-        return text
+        return start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")
     
+    
+    @property
+    @check_property_update
+    def info(self) -> dict[str, str]:
+        """
+        Property to get the portfolio information as a dictionary.
+
+        """
+        info = dict()
+        self.empty_negligible_assets()
+        equity_value = self.equity_value
+        quote_balance = self.balance
+        quote_equity_ratio = quote_balance / equity_value
+        info["Name"] = self.name.replace('_',' ').title()
+        info["Cash currency"] = self.symbol
+        info["Transfer commission"] = display_percentage(self.commission_transfer)
+        info["Trade commission"] = display_percentage(self.commission_trade)
+        info["Time start"] = self.period[0]
+        info["Time end"] = self.period[1]
+        info["Timespan"] = display_price(self.timespan,"seconds")
+        info["Invested capital"] = display_price(self.invested_capital, self.symbol)
+        info["Disbursed capital"] = display_price(self.disbursed_capital, self.symbol)
+        info["Cash balance"] = display_price(self.balance, self.symbol)
+        info["Cash balance ratio"] = display_percentage(quote_equity_ratio)
+        # If there are no historical prices, it can't display any assets information.
+        if not self.historical_prices.empty:
+            assets_value = self.assets_value
+            assets_equity_ratio = assets_value / equity_value
+            total_gains = self.gains
+            realized_gains = self.realized_gains_sum
+            paper_gains = total_gains - realized_gains
+            info["Assets value"] = display_price(self.assets_value, self.symbol)
+            info["Assets value ratio"] = display_percentage(assets_equity_ratio)
+            info["Equity value"] = display_price(self.equity_value, self.symbol)
+            info["Transactions"] = display_integer(self.transactions_count())
+            info["Amount traded"] = display_price(self.transactions_sum(), self.symbol)
+            info["ROI"] = display_percentage(self.roi)
+            info["Total Gains"] = display_price(total_gains, self.symbol)
+            info["Realized Gains"] = display_price(realized_gains, self.symbol)
+            info["Paper Gains"] = display_price(paper_gains, self.symbol)
+            info["Commissions"] = display_price(self.total_commissions, self.symbol)
+            info["Commissions/Gains ratio"] = self.commission_gains_ratio_str
+            info["Hold ROI (Theoretical)"] = display_percentage(self.hold_roi)
+            info["Hold Gains (Theoretical)"] = display_price(self.hold_gains, self.symbol)
+            info["ROI Performance (vs Hold)"] = display_percentage(self.roi_vs_hold_roi)
+            info["Assets Traded"] = len(self.assets_traded_list)
+        return info
+    
+    @property
+    @check_property_update
+    def info_pd(self) -> pd.DataFrame:
+        """
+        Property to get the portfolio information as a DataFrame.
+
+        """
+        info = self.info
+        return pd.Series(info)
+
     @property
     @check_property_update
     def text_repr(self) -> str:
@@ -200,21 +258,18 @@ class Portfolio(Asset):
         Property to display the portfolio information as a string.
         
         """
-        self.empty_negligible_assets()
-        equity_value = self.equity_value
-        quote_balance = self.balance
-        quote_equity_ratio = quote_balance / equity_value
+        info = self.info
         text = (
-                f"Portfolio ({self.name}):\n"
-                f"  -> Cash currency: {self.symbol}\n"
-                f"  -> Transfer commission: {display_percentage(self.commission_transfer)}\n"
-                f"  -> Trade commission: {display_percentage(self.commission_trade)}\n"
-                f"  -> Timerange: {self.period}\n"
-                f"  -> Timespan: {display_price(self.timespan,"seconds")}\n"
-                f"  -> Invested capital: {display_price(self.invested_capital, self.symbol)}\n"
-                f"  -> Disbursed capital: {display_price(self.disbursed_capital, self.symbol)}\n"
-                f"  -> Cash balance: {display_price(self.balance, self.symbol)}"
-                f" ({display_percentage(quote_equity_ratio)})\n"
+                f"Portfolio: {info['Name']}:\n"
+                f"  -> Cash currency: {info['Cash currency']}\n"
+                f"  -> Transfer commission: {info['Transfer commission']}\n"
+                f"  -> Trade commission: {info['Trade commission']}\n"
+                f"  -> Timerange: from {info['Time start']} to {info['Time end']}\n"
+                f"  -> Timespan: {info['Timespan']}\n"
+                f"  -> Invested capital: {info['Invested capital']}\n"
+                f"  -> Disbursed capital: {info['Disbursed capital']}\n"
+                f"  -> Cash balance: {info['Cash balance']}"
+                f" ({info['Cash balance ratio']})\n"
         )
         # If there are no historical prices, it can't display any assets information.
         if self.historical_prices.empty:
@@ -224,38 +279,96 @@ class Portfolio(Asset):
                 f"{text}"
             )
         else:
-            assets_value = self.assets_value
-            assets_equity_ratio = assets_value / equity_value
-            total_gains = self.gains
-            realized_gains = self.realized_gains_sum
-            paper_gains = total_gains - realized_gains
             text = (
                 f"{text}"
-                f"  -> Assets value: {display_price(self.assets_value, self.symbol)}"
-                f" ({display_percentage(assets_equity_ratio)})\n"
-                f"  -> Equity value: {display_price(self.equity_value, self.symbol)}\n"
-                f"  -> Transactions: {display_integer(self.transactions_count())}\n"
-                f"  -> Amount traded: {display_price(self.transactions_sum(), self.symbol)}\n"
-                f"  -> ROI: {display_percentage(self.roi)}\n"
-                f"  -> Total Gains: {display_price(total_gains, self.symbol)}\n"
-                f"  -> Realized Gains: {display_price(realized_gains, self.symbol)}\n"
-                f"  -> Paper Gains: {display_price(paper_gains, self.symbol)}\n"
-                f"  -> Commissions: {display_price(self.total_commissions, self.symbol)}\n"
-                f"  -> Commissions/Gains ratio: {self.commission_gains_ratio_str}\n"
-                f"  -> Hold ROI (Theoretical): {display_percentage(self.hold_roi)}\n"
-                f"  -> Hold Gains (Theoretical): {display_price(self.hold_gains, self.symbol)}\n"
-                f"  -> ROI Performance (vs Hold): {display_percentage(self.roi_vs_hold_roi)}\n"
-                f"  -> Assets Traded: "
+                f"  -> Assets value: {info['Assets value']}"
+                f" ({info['Assets value ratio']})\n"
+                f"  -> Equity value: {info['Equity value']}\n"
+                f"  -> Transactions: {info['Transactions']}\n"
+                f"  -> Amount traded: {info['Amount traded']}\n"
+                f"  -> ROI: {info['ROI']}\n"
+                f"  -> Total Gains: {info['Total Gains']}\n"
+                f"  -> Realized Gains: {info['Realized Gains']}\n"
+                f"  -> Paper Gains: {info['Paper Gains']}\n"
+                f"  -> Commissions: {info['Commissions']}\n"
+                f"  -> Commissions/Gains ratio: {info['Commissions/Gains ratio']}\n"
+                f"  -> Hold ROI (Theoretical): {info['Hold ROI (Theoretical)']}\n"
+                f"  -> Hold Gains (Theoretical): {info['Hold Gains (Theoretical)']}\n"
+                f"  -> ROI Performance (vs Hold): {info['ROI Performance (vs Hold)']}\n"
             )
             if len(self.assets_traded_list) > 0:
                 text += (
-                    f"{len(self.assets_traded_list)}\n"
+                    f"  -> Assets Traded: {info['Assets Traded']}\n"
                     f"{self.assets_pretty_table}\n\n"
                 )
             # This applies only in case of having updated the prices but not having any transaction yet.
             else:
-                text += "None\n\n"
+                text += f"  -> Assets Traded: None\n"
         return text
+        
+    # @property
+    # @check_property_update
+    # def text_repr(self) -> str:
+    #     """
+    #     Property to display the portfolio information as a string.
+        
+    #     """
+    #     self.empty_negligible_assets()
+    #     equity_value = self.equity_value
+    #     quote_balance = self.balance
+    #     quote_equity_ratio = quote_balance / equity_value
+    #     text = (
+    #             f"Portfolio ({self.name}):\n"
+    #             f"  -> Cash currency: {self.symbol}\n"
+    #             f"  -> Transfer commission: {display_percentage(self.commission_transfer)}\n"
+    #             f"  -> Trade commission: {display_percentage(self.commission_trade)}\n"
+    #             f"  -> Timerange: {self.period}\n"
+    #             f"  -> Timespan: {display_price(self.timespan,"seconds")}\n"
+    #             f"  -> Invested capital: {display_price(self.invested_capital, self.symbol)}\n"
+    #             f"  -> Disbursed capital: {display_price(self.disbursed_capital, self.symbol)}\n"
+    #             f"  -> Cash balance: {display_price(self.balance, self.symbol)}"
+    #             f" ({display_percentage(quote_equity_ratio)})\n"
+    #     )
+    #     # If there are no historical prices, it can't display any assets information.
+    #     if self.historical_prices.empty:
+    #         text = (
+    #             "!!! NO DATA ASSETS' PRICES AVAILABLE YET !!!\n"
+    #             "    -> Please update assets' prices.\n\n"
+    #             f"{text}"
+    #         )
+    #     else:
+    #         assets_value = self.assets_value
+    #         assets_equity_ratio = assets_value / equity_value
+    #         total_gains = self.gains
+    #         realized_gains = self.realized_gains_sum
+    #         paper_gains = total_gains - realized_gains
+    #         text = (
+    #             f"{text}"
+    #             f"  -> Assets value: {display_price(self.assets_value, self.symbol)}"
+    #             f" ({display_percentage(assets_equity_ratio)})\n"
+    #             f"  -> Equity value: {display_price(self.equity_value, self.symbol)}\n"
+    #             f"  -> Transactions: {display_integer(self.transactions_count())}\n"
+    #             f"  -> Amount traded: {display_price(self.transactions_sum(), self.symbol)}\n"
+    #             f"  -> ROI: {display_percentage(self.roi)}\n"
+    #             f"  -> Total Gains: {display_price(total_gains, self.symbol)}\n"
+    #             f"  -> Realized Gains: {display_price(realized_gains, self.symbol)}\n"
+    #             f"  -> Paper Gains: {display_price(paper_gains, self.symbol)}\n"
+    #             f"  -> Commissions: {display_price(self.total_commissions, self.symbol)}\n"
+    #             f"  -> Commissions/Gains ratio: {self.commission_gains_ratio_str}\n"
+    #             f"  -> Hold ROI (Theoretical): {display_percentage(self.hold_roi)}\n"
+    #             f"  -> Hold Gains (Theoretical): {display_price(self.hold_gains, self.symbol)}\n"
+    #             f"  -> ROI Performance (vs Hold): {display_percentage(self.roi_vs_hold_roi)}\n"
+    #             f"  -> Assets Traded: "
+    #         )
+    #         if len(self.assets_traded_list) > 0:
+    #             text += (
+    #                 f"{len(self.assets_traded_list)}\n"
+    #                 f"{self.assets_pretty_table}\n\n"
+    #             )
+    #         # This applies only in case of having updated the prices but not having any transaction yet.
+    #         else:
+    #             text += "None\n\n"
+    #     return text
 
     def __repr__(self) -> str:
         """
