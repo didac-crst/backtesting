@@ -28,6 +28,7 @@ from .support import (
     COLOR_PALETTE_DICT,
 )
 from .record_objects import LITERAL_TRANSACTION_REASON
+from .pandas_units import SeriesUnits
 
 VerboseType = Literal["silent", "action", "status", "verbose"]
 
@@ -191,8 +192,7 @@ class Portfolio(Asset):
         timerange = self.timerange
         start = pd.to_datetime(timerange[0], unit="s")
         end = pd.to_datetime(timerange[1], unit="s")
-        return start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")
-    
+        return start, end
     
     @property
     @check_property_update
@@ -207,16 +207,16 @@ class Portfolio(Asset):
         quote_balance = self.balance
         quote_equity_ratio = quote_balance / equity_value
         info["Name"] = self.name.replace('_',' ').title()
-        info["Cash currency"] = self.symbol
-        info["Transfer commission"] = display_percentage(self.commission_transfer)
-        info["Trade commission"] = display_percentage(self.commission_trade)
+        # info["Cash currency"] = self.symbol
+        info["Transfer commission"] = self.commission_transfer
+        info["Trade commission"] = self.commission_trade
         info["Time start"] = self.period[0]
         info["Time end"] = self.period[1]
-        info["Timespan"] = display_price(self.timespan,"seconds")
-        info["Invested capital"] = display_price(self.invested_capital, self.symbol)
-        info["Disbursed capital"] = display_price(self.disbursed_capital, self.symbol)
-        info["Cash balance"] = display_price(self.balance, self.symbol)
-        info["Cash balance ratio"] = display_percentage(quote_equity_ratio)
+        info["Timespan"] = self.timespan
+        info["Invested capital"] = self.invested_capital
+        info["Disbursed capital"] = self.disbursed_capital
+        info["Cash balance"] = self.balance
+        info["Cash balance ratio"] = quote_equity_ratio
         # If there are no historical prices, it can't display any assets information.
         if not self.historical_prices.empty:
             assets_value = self.assets_value
@@ -224,22 +224,69 @@ class Portfolio(Asset):
             total_gains = self.gains
             realized_gains = self.realized_gains_sum
             paper_gains = total_gains - realized_gains
-            info["Assets value"] = display_price(self.assets_value, self.symbol)
-            info["Assets value ratio"] = display_percentage(assets_equity_ratio)
-            info["Equity value"] = display_price(self.equity_value, self.symbol)
-            info["Transactions"] = display_integer(self.transactions_count())
-            info["Amount traded"] = display_price(self.transactions_sum(), self.symbol)
-            info["ROI"] = display_percentage(self.roi)
-            info["Total Gains"] = display_price(total_gains, self.symbol)
-            info["Realized Gains"] = display_price(realized_gains, self.symbol)
-            info["Paper Gains"] = display_price(paper_gains, self.symbol)
-            info["Commissions"] = display_price(self.total_commissions, self.symbol)
-            info["Commissions/Gains ratio"] = self.commission_gains_ratio_str
-            info["Hold ROI (Theoretical)"] = display_percentage(self.hold_roi)
-            info["Hold Gains (Theoretical)"] = display_price(self.hold_gains, self.symbol)
-            info["ROI Performance (vs Hold)"] = display_percentage(self.roi_vs_hold_roi)
+            info["Assets value"] = self.assets_value
+            info["Assets value ratio"] = assets_equity_ratio
+            info["Equity value"] = self.equity_value
+            info["Transactions"] = self.transactions_count()
+            info["Amount traded"] = self.transactions_sum()
+            info["ROI"] = self.roi
+            info["Total Gains"] = total_gains
+            info["Realized Gains"] = realized_gains
+            info["Paper Gains"] = paper_gains
+            info["Commissions"] = self.total_commissions
+            info["Commissions/Gains ratio"] = self.commission_gains_ratio
+            info["Hold ROI (Theoretical)"] = self.hold_roi
+            info["Hold Gains (Theoretical)"] = self.hold_gains
+            info["ROI Performance (vs Hold)"] = self.roi_vs_hold_roi
             info["Assets Traded"] = len(self.assets_traded_list)
         return info
+    
+    # @property
+    # @check_property_update
+    # def info(self) -> dict[str, str]:
+    #     """
+    #     Property to get the portfolio information as a dictionary.
+
+    #     """
+    #     info = dict()
+    #     self.empty_negligible_assets()
+    #     equity_value = self.equity_value
+    #     quote_balance = self.balance
+    #     quote_equity_ratio = quote_balance / equity_value
+    #     info["Name"] = self.name.replace('_',' ').title()
+    #     info["Cash currency"] = self.symbol
+    #     info["Transfer commission"] = display_percentage(self.commission_transfer)
+    #     info["Trade commission"] = display_percentage(self.commission_trade)
+    #     info["Time start"] = self.period[0]
+    #     info["Time end"] = self.period[1]
+    #     info["Timespan"] = display_price(self.timespan,"seconds")
+    #     info["Invested capital"] = display_price(self.invested_capital, self.symbol)
+    #     info["Disbursed capital"] = display_price(self.disbursed_capital, self.symbol)
+    #     info["Cash balance"] = display_price(self.balance, self.symbol)
+    #     info["Cash balance ratio"] = display_percentage(quote_equity_ratio)
+    #     # If there are no historical prices, it can't display any assets information.
+    #     if not self.historical_prices.empty:
+    #         assets_value = self.assets_value
+    #         assets_equity_ratio = assets_value / equity_value
+    #         total_gains = self.gains
+    #         realized_gains = self.realized_gains_sum
+    #         paper_gains = total_gains - realized_gains
+    #         info["Assets value"] = display_price(self.assets_value, self.symbol)
+    #         info["Assets value ratio"] = display_percentage(assets_equity_ratio)
+    #         info["Equity value"] = display_price(self.equity_value, self.symbol)
+    #         info["Transactions"] = display_integer(self.transactions_count())
+    #         info["Amount traded"] = display_price(self.transactions_sum(), self.symbol)
+    #         info["ROI"] = display_percentage(self.roi)
+    #         info["Total Gains"] = display_price(total_gains, self.symbol)
+    #         info["Realized Gains"] = display_price(realized_gains, self.symbol)
+    #         info["Paper Gains"] = display_price(paper_gains, self.symbol)
+    #         info["Commissions"] = display_price(self.total_commissions, self.symbol)
+    #         info["Commissions/Gains ratio"] = self.commission_gains_ratio
+    #         info["Hold ROI (Theoretical)"] = display_percentage(self.hold_roi)
+    #         info["Hold Gains (Theoretical)"] = display_price(self.hold_gains, self.symbol)
+    #         info["ROI Performance (vs Hold)"] = display_percentage(self.roi_vs_hold_roi)
+    #         info["Assets Traded"] = len(self.assets_traded_list)
+    #     return info
     
     @property
     @check_property_update
@@ -248,8 +295,38 @@ class Portfolio(Asset):
         Property to get the portfolio information as a DataFrame.
 
         """
-        info = self.info
-        return pd.Series(info)
+        info_s = pd.Series(self.info)
+        units = pd.Series(
+            {
+                "Name": "",
+                "Transfer commission": "%",
+                "Trade commission": "%",
+                "Time start": "",
+                "Time end": "",
+                "Timespan": "s",
+                "Invested capital": self.symbol,
+                "Disbursed capital": self.symbol,
+                "Cash balance": self.symbol,
+                "Cash balance ratio": "%",
+                "Assets value": self.symbol,
+                "Assets value ratio": "%",
+                "Equity value": self.symbol,
+                "Transactions": "",
+                "Amount traded": self.symbol,
+                "ROI": "%",
+                "Total Gains": self.symbol,
+                "Realized Gains": self.symbol,
+                "Paper Gains": self.symbol,
+                "Commissions": self.symbol,
+                "Commissions/Gains ratio": "%",
+                "Hold ROI (Theoretical)": "%",
+                "Hold Gains (Theoretical)": self.symbol,
+                "ROI Performance (vs Hold)": "%",
+                "Assets Traded": "",
+            }
+        )
+        info_units = SeriesUnits(data=info_s, units=units)
+        return info_units
 
     @property
     @check_property_update
@@ -258,10 +335,10 @@ class Portfolio(Asset):
         Property to display the portfolio information as a string.
         
         """
-        info = self.info
+        info = self.info_pd.D
         text = (
                 f"Portfolio: {info['Name']}:\n"
-                f"  -> Cash currency: {info['Cash currency']}\n"
+                f"  -> Cash currency: {self.symbol}\n"
                 f"  -> Transfer commission: {info['Transfer commission']}\n"
                 f"  -> Trade commission: {info['Trade commission']}\n"
                 f"  -> Timerange: from {info['Time start']} to {info['Time end']}\n"
@@ -354,7 +431,7 @@ class Portfolio(Asset):
     #             f"  -> Realized Gains: {display_price(realized_gains, self.symbol)}\n"
     #             f"  -> Paper Gains: {display_price(paper_gains, self.symbol)}\n"
     #             f"  -> Commissions: {display_price(self.total_commissions, self.symbol)}\n"
-    #             f"  -> Commissions/Gains ratio: {self.commission_gains_ratio_str}\n"
+    #             f"  -> Commissions/Gains ratio: {self.commission_gains_ratio}\n"
     #             f"  -> Hold ROI (Theoretical): {display_percentage(self.hold_roi)}\n"
     #             f"  -> Hold Gains (Theoretical): {display_price(self.hold_gains, self.symbol)}\n"
     #             f"  -> ROI Performance (vs Hold): {display_percentage(self.roi_vs_hold_roi)}\n"
@@ -1229,7 +1306,7 @@ class Portfolio(Asset):
 
     @property
     @check_property_update
-    def commission_gains_ratio_str(self) -> str:
+    def commission_gains_ratio(self) -> str:
         """
         Property to get the ratio of the total commissions to the gains of the portfolio.
         
@@ -1237,9 +1314,9 @@ class Portfolio(Asset):
         gains = self.gains
         if gains > 0:
             ratio = self.total_commissions / gains
-            return display_percentage(ratio)
+            return ratio
         else:
-            return "N/A"
+            return np.nan
 
     @property
     @check_property_update

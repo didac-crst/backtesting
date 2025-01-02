@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from .portfolio import Portfolio
 from .support import get_random_name, get_coloured_markers, to_percent_log_growth
+from .pandas_units import DataFrameUnits
 
 DEFAULT_INITIAL_ASSETS_LIST = 10
 
@@ -76,19 +77,50 @@ class TradingStrategy:
         self.assets_symbols_list = self.historical_prices['base'].unique()
         self.create_portfolios()
 
-    def portfolios_overview(self) -> pd.DataFrame:
+    # def portfolios_overview(self, agg: bool = False) -> pd.DataFrame:
+    #     """
+    #     Get an overview of the Portfolios.
+
+    #     """
+    #     portfolios_overview_list = []
+    #     for PF in self.Portfolios:
+    #         portfolios_overview_list.append(PF.info_pd.D)
+    #     overview_df = pd.DataFrame(portfolios_overview_list)
+    #     overview_df.reset_index(inplace=True, drop=False)
+    #     overview_df.rename(columns={'index': 'Portfolio index'}, inplace=True)
+    #     overview_df.set_index('Name', inplace=True)
+    #     return overview_df.T
+    
+    @property
+    def portfolios_dfu(self) -> pd.DataFrame:
         """
         Get an overview of the Portfolios.
 
         """
-        portfolios_overview_list = []
+        portfolios_dict = dict()
         for PF in self.Portfolios:
-            portfolios_overview_list.append(PF.info_pd)
-        overview_df = pd.DataFrame(portfolios_overview_list)
-        overview_df.reset_index(inplace=True, drop=False)
-        overview_df.rename(columns={'index': 'Portfolio index'}, inplace=True)
-        overview_df.set_index('Name', inplace=True)
-        return overview_df.T
+            name = PF.name
+            portfolios_dict[name] = PF.info_pd
+            overview_dfu = DataFrameUnits(portfolios_dict)
+        return overview_dfu
+    
+    @property
+    def describe(self) -> pd.DataFrame:
+        """
+        Describe statistically the strategy.
+
+        """
+        drop_columns = ['Name', 'Time start', 'Time end', 'Commissions/Gains ratio']
+        described_data = self.portfolios_dfu.describe(drop_columns=drop_columns)
+        return described_data
+            
+    @property
+    def portfolios(self) -> pd.DataFrame:
+        """
+        Property to get the details of the each Portfolio from the strategy.
+
+        """
+        return self.portfolios_dfu.D
 
     def __call__(self, portfolio: Optional[int] = None) -> Union[pd.DataFrame,Portfolio]:
         """
@@ -97,7 +129,7 @@ class TradingStrategy:
         """
         # Be careful with portfolio 0, it could be assessed as False.
         if portfolio is None:
-            return self.portfolios_overview()
+            return self.describe
         elif portfolio >= len(self.Portfolios):
             msg = f"Portfolio {portfolio} doesn't exist - Number of Portfolios: {len(self.Portfolios)}"
             raise ValueError(msg)
