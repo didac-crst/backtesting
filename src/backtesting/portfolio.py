@@ -27,6 +27,9 @@ from .support import (
     move_to_end,
     max_2_numbers,
     save_plot_pdf,
+    export_info_to_pdf,
+    export_table_to_pdf,
+    merge_pdf_files,
     COLOR_PALETTE_DICT,
 )
 from .record_objects import LITERAL_TRANSACTION_REASON
@@ -49,7 +52,7 @@ class Portfolio(Asset):
     time_chart_resolution: int = 400
     threshold_buy: float = 0.0 # This is the signal threshold to buy an asset - Only for display purposes
     threshold_sell: float = 0.0 # This is the signal threshold to sell an asset - Only for display purposes
-    output_folder_path: str = "./"
+    output_folder_path: str = "./tmp/"
 
     # Portfolio internal methods ------------------------------------------------
 
@@ -65,6 +68,7 @@ class Portfolio(Asset):
         self._properties_evolution_id = dict() # This dictionary will store the evolution_id of each property
         self._properties_cached = dict() # This dictionary will store the cached value of each property
         self.signals_df: Optional[pd.DataFrame] = None # This will be automatically provided by the strategy after running the backtest
+        self.pdf_export_files = []
     
     def new_transaction_id(self) -> int:
         """
@@ -289,63 +293,49 @@ class Portfolio(Asset):
 
         """
         # Example DataFrame (replace this with your actual TS1().info_pd.D DataFrame)
+        output_file="portfolio_info.pdf"
+        pdf_file_path = os.path.join(self.output_folder_path, output_file)
         portfolio_df = pd.DataFrame(self.info_pd.D).reset_index()
         portfolio_df = portfolio_df.iloc[3:]
-
-        # PDF file to save
-        output_file = "portfolio_info.pdf"
-
-        # Create a figure and axis
-        fig, ax = plt.subplots(figsize=(11, 15))  # Adjust size as needed
-        
-        # Add padding on top for the title
-        fig.subplots_adjust(top=1.0, bottom=0.0)
-        
-        # Add a title
-        fig.suptitle("Portfolio Summary", fontsize=30, fontweight="bold", y=0.94)
-        
-        # Hide the axes
-        ax.axis("off")
-        
-        # Create a table from the DataFrame
-        table = ax.table(
-            cellText=portfolio_df.values,  # Data for the table
-            cellLoc="center",  # Default cell alignment
-            loc="center",  # Position the table in the center of the figure
+        export_info_to_pdf(df=portfolio_df,
+                           pdf_file_path=pdf_file_path,
+                           title="Portfolio Summary",
         )
-        
-        # Set the font size and style for the table
-        table.auto_set_font_size(False)
-        table.set_fontsize(15)
-        
-        # Set column width
-        table.auto_set_column_width(col=list(range(len(portfolio_df.columns))))  # Adjust column widths
-        
-        # Apply some fancier styling
-        for (row, col), cell in table.get_celld().items():
-            if row % 2 == 0:  # Alternate row background color for even rows
-                cell.set_facecolor('#eeeee0')  # Light grey for even rows
-            else:  # Odd rows
-                cell.set_facecolor('#eee0ee')  # Light green for odd rows
-            
-            # Customize column text alignment
-            if col == 0:  # First column
-                cell._text.set_ha("left")  # Align text to the left
-                cell._text.set_fontweight('bold')
-            else:  # For other columns
-                cell._text.set_ha("right")  # Align text to the right
+        self.pdf_export_files.append(pdf_file_path)
 
-            # Set row height
-            cell.set_height(0.035)  # Adjust the row height (increase for more padding)
-            
-            # Set the edge color for each cell
-            cell.set_edgecolor('black')  # Set border color for each cell
-            cell.set_linewidth(1)  # Set border width
-
-        # Save the figure to the PDF
+    def export_assets_table_pdf(self) -> None:
+        output_file="assets_table.pdf"
         pdf_file_path = os.path.join(self.output_folder_path, output_file)
-        save_plot_pdf(fig=fig, pdf_file_path=pdf_file_path)
-        plt.close(fig)
+        export_table_to_pdf(df=self.assets_table_df(),
+                            pdf_file_path = pdf_file_path,
+                            title= "Traded Assets Details"
+        )
+        self.pdf_export_files.append(pdf_file_path)
+    
+    def create_pdf_report(self) -> None:
+        """
+        Method to create the PDF files with the portfolio information.
+
+        """
+        self.pdf_export_files = []
+        portfolio_name = self.name.replace(' ', '_')
+        original_folder_path = self.output_folder_path
+        self.output_folder_path = os.path.join(self.output_folder_path, portfolio_name)
+        if not os.path.exists(self.output_folder_path):
+            os.makedirs(self.output_folder_path)
+        self.export_info_pdf()
+        self.plot_summary(export_pdf=True)
+        self.plot_portfolio(export_pdf=True)
+        self.export_assets_table_pdf()
+        merge_pdf_files(self.pdf_export_files, os.path.join(original_folder_path, f"{portfolio_name}_report.pdf"))
+        # Delete the output folder and its files
+        if os.path.exists(self.output_folder_path):
+            for file in self.pdf_export_files:
+                if os.path.isfile(file):
+                    os.remove(file)
+            os.rmdir(self.output_folder_path)
+        # Restore the original output folder path
+        self.output_folder_path = original_folder_path
 
     @property
     @check_property_update
@@ -1830,6 +1820,7 @@ class Portfolio(Asset):
             pdf_file_path = os.path.join(self.output_folder_path, output_file)
             save_plot_pdf(fig=fig, pdf_file_path=pdf_file_path)
             plt.close()
+            self.pdf_export_files.append(pdf_file_path)
         else:
             plt.show()
 
@@ -2251,5 +2242,6 @@ class Portfolio(Asset):
             pdf_file_path = os.path.join(self.output_folder_path, output_file)
             save_plot_pdf(fig=fig, pdf_file_path=pdf_file_path)
             plt.close()
+            self.pdf_export_files.append(pdf_file_path)
         else:
             plt.show()

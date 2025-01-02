@@ -1,5 +1,6 @@
 import itertools 
 import math
+import os
 import random
 from time import time
 from typing import Optional, Callable, Union
@@ -7,8 +8,15 @@ from typing import Optional, Callable, Union
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
+import pandas as pd
 import prettytable as pt
 from faker import Faker
+
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib import colors
+from reportlab.lib.styles import ParagraphStyle
+
+from PyPDF2 import PdfMerger
 
 COLOR_PALETTE_DICT = {
     "Blue": "#1f77b4",
@@ -257,3 +265,145 @@ def save_plot_pdf(fig: plt.Figure, pdf_file_path: str) -> None:
     with PdfPages(pdf_file_path) as pdf:
         pdf.savefig(fig, bbox_inches='tight')
         plt.close()
+
+def export_info_to_pdf(df: pd.DataFrame,
+                        pdf_file_path: str,
+                        title: str,
+                       ) -> None:
+    """
+    Method to export information into a PDF file.
+
+    """
+    # Example DataFrame (replace this with your actual TS1().info_pd.D DataFrame)
+    # portfolio_df = df
+    # portfolio_df = portfolio_df.iloc[3:]
+
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(11, 15))  # Adjust size as needed
+    
+    # Add padding on top for the title
+    fig.subplots_adjust(top=1.0, bottom=0.0)
+    
+    # Add a title
+    fig.suptitle(title, fontsize=30, fontweight="bold", y=0.94)
+    
+    # Hide the axes
+    ax.axis("off")
+    
+    # Create a table from the DataFrame
+    table = ax.table(
+        cellText=df.values,  # Data for the table
+        cellLoc="center",  # Default cell alignment
+        loc="center",  # Position the table in the center of the figure
+    )
+    
+    # Set the font size and style for the table
+    table.auto_set_font_size(False)
+    table.set_fontsize(15)
+    
+    # Set column width
+    table.auto_set_column_width(col=list(range(len(df.columns))))  # Adjust column widths
+    
+    # Apply some fancier styling
+    for (row, col), cell in table.get_celld().items():
+        if row % 2 == 0:  # Alternate row background color for even rows
+            cell.set_facecolor('#eeeee0')  # Light grey for even rows
+        else:  # Odd rows
+            cell.set_facecolor('#eee0ee')  # Light green for odd rows
+        
+        # Customize column text alignment
+        if col == 0:  # First column
+            cell._text.set_ha("left")  # Align text to the left
+            cell._text.set_fontweight('bold')
+        else:  # For other columns
+            cell._text.set_ha("right")  # Align text to the right
+
+        # Set row height
+        cell.set_height(0.035)  # Adjust the row height (increase for more padding)
+        
+        # Set the edge color for each cell
+        cell.set_edgecolor('black')  # Set border color for each cell
+        cell.set_linewidth(1)  # Set border width
+
+    # Save the figure to the PDF file
+    save_plot_pdf(fig=fig, pdf_file_path=pdf_file_path)
+    plt.close(fig)
+
+def export_table_to_pdf(df: pd.DataFrame,
+                        pdf_file_path: str,
+                        title: str,
+) -> None:
+    """
+    Export a DataFrame to a PDF file as a table.
+    
+    """
+    # Dynamically calculate page size
+    content_width = 15 * 72  # 15 inches
+    content_height = 25 * 72  # 25 inches
+    dynamic_page_size = (content_width, content_height)
+    
+    # Extract assets data
+    T_df = df.reset_index(drop=True).values.tolist()  # Convert DataFrame to list of lists
+    T_df.insert(0, list(df.columns))  # Insert column names as the first row
+
+    # Create PDF
+    pdf = SimpleDocTemplate(pdf_file_path, pagesize=dynamic_page_size)
+
+    # Title style
+    title_style = ParagraphStyle(
+        name="CustomTitle",
+        fontSize=36,  # Set the font size to 36 for a bigger title
+        leading=42,   # Line height (slightly larger than font size for spacing)
+        alignment=1,  # Center alignment
+        fontName="Helvetica-Bold",  # Bold font
+        textColor=colors.black  # Optional: Set a color (dark blue)
+    )
+    # Create a title
+    title = Paragraph(title, title_style)
+
+    # Spacer to separate the title and table
+    spacer = Spacer(1, 12)  # Adds space of 12 points
+
+    # Define table
+    Table_assets = Table(T_df, repeatRows=1)  # Enable repeating column headers
+
+    # Custom colors
+    light_grey = colors.Color(0.933, 0.933, 0.878)  # Equivalent to #eeeee0
+    light_green = colors.Color(0.933, 0.878, 0.933)  # Equivalent to #eee0ee
+    pastel_blue = colors.Color(0.378, 0.347, 0.802)  # Equivalent to #6059cd
+
+    Table_assets.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), pastel_blue),  # Header background
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),  # Header text color
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),  # Center align all cells
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),  # Bold font for header
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),  # Padding for header
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),  # Grid lines
+        # Alternating row colors
+        ('BACKGROUND', (0, 1), (-1, -1), light_grey),  # Default row color
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [light_grey, light_green]),  # Alternating colors
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),  # Text color
+        ('ALIGN', (0, 1), (-1, -1), 'RIGHT'),  # Center align all cells
+    ]))
+
+    # Add elements to the document
+    elements = [title, spacer, Table_assets]
+
+    # Build PDF
+    pdf.build(elements)
+    
+def merge_pdf_files(pdf_files, output_file):
+    """
+    Merge a list of PDF files into a single PDF file.
+    
+    """
+    # Create a PdfMerger object
+    merger = PdfMerger()
+
+    # Add each PDF file to the merger
+    for pdf in pdf_files:
+        merger.append(pdf)
+
+    # Write the merged PDF to a new file
+    merger.write(output_file)
+    merger.close()
