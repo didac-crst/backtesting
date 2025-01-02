@@ -21,7 +21,7 @@ def display_unit(amount: float, unit: Optional[str] = None) -> str:
         elif amount == 0:
             text = "---"
         else:
-            text = format(int(amount), ",d")
+            text = f"{amount:,d}"
     elif isinstance(amount, float):
         if np.isnan(amount):
             text = "N/A"
@@ -168,11 +168,6 @@ class DataFrameUnits:
         data_df = self.df.copy()
         units_df = pd.DataFrame([self.units.rename(i) for i in data_df.columns]).T
         output_df = display_unit_df(data_df, units_df)
-        # for col in data_df.columns:
-        #     data_col = data_df[col].rename('data')
-        #     units_col = units_df[col].rename('units')
-        #     concatenated = pd.concat([data_col, units_col], axis=1)
-        #     output_df[col] = concatenated.apply(lambda row: display_unit(row['data'], row['units']), axis=1)
         output_df = output_df.T
         output_df.set_index('Name', inplace=True)
         output_df = output_df.T

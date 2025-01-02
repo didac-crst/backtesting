@@ -210,12 +210,11 @@ class Portfolio(Asset):
         quote_balance = self.balance
         quote_equity_ratio = quote_balance / equity_value
         info["Name"] = self.name.replace('_',' ').title()
-        # info["Cash currency"] = self.symbol
         info["Transfer commission"] = self.commission_transfer
         info["Trade commission"] = self.commission_trade
-        info["Time start"] = self.period[0]
-        info["Time end"] = self.period[1]
-        info["Timespan"] = self.timespan
+        info["Start time"] = self.period[0]
+        info["End time"] = self.period[1]
+        info["Time span"] = self.timespan
         info["Invested capital"] = self.invested_capital
         info["Disbursed capital"] = self.disbursed_capital
         info["Cash balance"] = self.balance
@@ -257,9 +256,9 @@ class Portfolio(Asset):
                 "Name": "",
                 "Transfer commission": "%",
                 "Trade commission": "%",
-                "Time start": "",
-                "Time end": "",
-                "Timespan": "s",
+                "Start time": "",
+                "End time": "",
+                "Time span": "s",
                 "Invested capital": self.symbol,
                 "Disbursed capital": self.symbol,
                 "Cash balance": self.symbol,
@@ -361,8 +360,8 @@ class Portfolio(Asset):
                 f"  -> Cash currency: {self.symbol}\n"
                 f"  -> Transfer commission: {info['Transfer commission']}\n"
                 f"  -> Trade commission: {info['Trade commission']}\n"
-                f"  -> Timerange: from {info['Time start']} to {info['Time end']}\n"
-                f"  -> Timespan: {info['Timespan']}\n"
+                f"  -> Time range: from {info['Start time']} to {info['End time']}\n"
+                f"  -> Time span: {info['Time span']}\n"
                 f"  -> Invested capital: {info['Invested capital']}\n"
                 f"  -> Disbursed capital: {info['Disbursed capital']}\n"
                 f"  -> Cash balance: {info['Cash balance']}"
@@ -760,7 +759,7 @@ class Portfolio(Asset):
 
         """
         start, end = self.timerange
-        return end - start
+        return int(end - start)
     
     @property
     def time_bar_width(self) -> int:
@@ -869,7 +868,7 @@ class Portfolio(Asset):
         Property to get the total realized gains in the portfolio.
 
         """
-        return self.realized_gains_assets.sum()
+        return float(self.realized_gains_assets.sum())
 
     @property
     @check_property_update
@@ -889,7 +888,7 @@ class Portfolio(Asset):
         Property to get the total or equity value of the portfolio.
 
         """
-        return self.balance + self.assets_value
+        return float(self.balance + self.assets_value)
 
     @property
     def total_commissions(self) -> float:
@@ -925,9 +924,10 @@ class Portfolio(Asset):
 
         """
         if symbol is None:
-            return self.balance
+            balance = self.balance
         else:
-            return self.assets[symbol].balance
+            balance = self.assets[symbol].balance
+        return float(balance)
 
     def get_value(
         self, symbol: Optional[str] = None, quote: Optional[str] = None
@@ -948,9 +948,10 @@ class Portfolio(Asset):
             except KeyError:
                 raise ValueError(f"Currency {quote} not found in the portfolio")
         if symbol is None:
-            return self.balance / price
+            value = self.balance / price
         else:
-            return (self.assets[symbol].balance * self.assets[symbol].price) / price
+            value = (self.assets[symbol].balance * self.assets[symbol].price) / price
+        return float(value)
         
     @property
     def export_assets(self) -> dict[str, float]:
@@ -971,7 +972,7 @@ class Portfolio(Asset):
         Property to get the liquidity ratio of the portfolio.
 
         """
-        return self.balance / self.equity_value
+        return float(self.balance / self.equity_value)
 
     @property
     def historical_capital(self) -> pd.DataFrame:
@@ -1283,9 +1284,10 @@ class Portfolio(Asset):
         """
         investment = self.invested_capital
         if investment > 0:
-            return (self.gains / investment).round(5)
+            roi = np.round(self.gains / investment, 5)
         else:
-            return 0.0
+            roi = 0.0
+        return float(roi)
     
     @property
     @check_property_update
@@ -1428,7 +1430,7 @@ class Portfolio(Asset):
         Property to provide the sum of the theoretical gains of holding the assets in the portfolio.
 
         """
-        return self.hold_gains_assets.sum()
+        return float(self.hold_gains_assets.sum())
 
     @property
     @check_property_update
@@ -1437,7 +1439,7 @@ class Portfolio(Asset):
         Property to provide the Return on Investment (ROI) of theoretical holding the assets in the portfolio.
 
         """
-        return (self.hold_gains / self.invested_capital).round(5)
+        return float(np.round(self.hold_gains / self.invested_capital, 5))
     
     @property
     @check_property_update
@@ -1446,7 +1448,7 @@ class Portfolio(Asset):
         Property to provide the difference between the ROI and the theoretical holding ROI.
 
         """
-        return self.roi - self.hold_roi
+        return float(self.roi - self.hold_roi)
 
 
     def get_asset_growth(self, symbol: str) -> float:

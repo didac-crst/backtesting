@@ -371,7 +371,7 @@ class TradingStrategy:
     portfolio_symbol: str = "USDT"
     description: Optional['str'] = None
     initial_assets_list: Union[list,dict,int] = DEFAULT_INITIAL_ASSETS_LIST # Number of random initial assets
-    minimal_liquidity_ratio: float = 0.05
+    minimal_liquidity_ratio: float = 0.1
     maximal_equity_per_asset_ratio: float = 0.1
     number_of_portfolios: int = 1
     max_volatility_to_buy: Optional[float] = None
@@ -406,7 +406,7 @@ class TradingStrategy:
         Describe statistically the strategy.
 
         """
-        drop_columns = ['Name', 'Time start', 'Time end', 'Commissions/Gains ratio']
+        drop_columns = ['Name', 'Start time', 'End time', 'Commissions/Gains ratio']
         described_data = self.portfolios_dfu.describe(drop_columns=drop_columns)
         return described_data
             

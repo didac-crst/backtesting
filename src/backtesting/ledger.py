@@ -272,7 +272,7 @@ class Ledger:
         """
         ledger_df = self.transactions_df.copy()
         total_commissions = ledger_df["Commission"].sum()
-        return total_commissions
+        return float(total_commissions)
 
     def transactions_count(self, symbol: Optional[str] = None) -> int:
         """
@@ -285,9 +285,10 @@ class Ledger:
         """
         ledger_df = self.transactions_df.copy()
         if symbol is not None:
-            return len(ledger_df[ledger_df["Symbol"] == symbol])
+            transactions_count = len(ledger_df[ledger_df["Symbol"] == symbol])
         else:
-            return len(ledger_df[ledger_df["Symbol"] != self.portfolio_symbol])
+            transactions_count = len(ledger_df[ledger_df["Symbol"] != self.portfolio_symbol])
+        return transactions_count
 
     def transactions_sum(self, symbol: Optional[str] = None) -> float:
         """
@@ -300,11 +301,12 @@ class Ledger:
         """
         ledger_df = self.transactions_df.copy()
         if symbol is not None:
-            return ledger_df[ledger_df["Symbol"] == symbol]["Traded"].sum()
+            transactions_sum = ledger_df[ledger_df["Symbol"] == symbol]["Traded"].sum()
         else:
-            return ledger_df[ledger_df["Symbol"] != self.portfolio_symbol][
+            transactions_sum = ledger_df[ledger_df["Symbol"] != self.portfolio_symbol][
                 "Traded"
             ].sum()
+        return float(transactions_sum)
 
     @property
     @check_property_update
@@ -343,8 +345,8 @@ class Ledger:
         capital_df = self.capital_df
         investment = capital_df[capital_df["Action"] == "INVEST"]["Amount"].sum()
         disbursement = capital_df[capital_df["Action"] == "DISBURSE"]["Amount"].sum()
-        capital_dict["Investment"] = investment
-        capital_dict["Disbursement"] = disbursement
+        capital_dict["Investment"] = float(investment)
+        capital_dict["Disbursement"] = float(disbursement)
         return capital_dict
 
     @property
