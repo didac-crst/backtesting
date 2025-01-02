@@ -42,6 +42,320 @@ TIME_GRANULARITY_MAP = {
     },
 }
 
+# SIMULATION RETURNS FUNCTIONS ---------------------------------------------------------
+
+def convert_daily_performance(roi_perfo: pd.DataFrame) -> pd.DataFrame:
+    """
+    Function that provides the performance of the backtest based on the ROI on a daily basis.
+    
+    """
+    def convert_returns_to_daily_returns(returns, timespan):
+        day= 24*3600
+        daily_returns = (1 + returns) ** (day/timespan) - 1
+        return daily_returns
+    roi_perfo['timespan'] = roi_perfo.timerange.apply(lambda x: x[1]-x[0])
+    roi_perfo['roi'] = roi_perfo.apply(lambda x: convert_returns_to_daily_returns(x['roi'], x['timespan']), axis=1)
+    roi_perfo['hold_roi'] = roi_perfo.apply(lambda x: convert_returns_to_daily_returns(x['hold_roi'], x['timespan']), axis=1)
+    return roi_perfo
+    
+
+def change_roi_performance_time_granularity(roi_perfo:pd.DataFrame,
+                                            time_granularity: Literal['D','W','M','Q','Y']) -> pd.DataFrame:
+    """
+    Change the time granularity of the ROI performance.
+
+    D: Daily
+    W: Weekly
+    M: Monthly
+    Q: Quarterly
+    Y: Yearly
+    
+    """
+    if time_granularity != 'D':
+        for col in ['roi', 'hold_roi']:
+            roi_perfo[col] = roi_perfo[col].apply(lambda x: (1 + x) ** TIME_GRANULARITY_MAP[time_granularity]['value'] - 1)
+    return roi_perfo
+    
+def _stochastic_compounded_single_performance(roi_performance: pd.DataFrame, days: int) -> pd.Series:
+    """
+    Get the random performance of the backtest based on the ROI for a single day and compounded over a number of days.
+    
+    """
+    size = len(roi_performance)
+    randnum = np.random.randint(0, high=size, size=days)
+    strat_roi_list = []
+    hold_roi_list = []
+    for i in randnum:
+        values = roi_performance.iloc[i]
+        hold_roi_list.append(values['hold_roi'])
+        strat_roi_list.append(values['roi'])
+    values_df = pd.DataFrame([hold_roi_list,strat_roi_list], index=['Hold','Strategy']).T
+    values_df = values_df + 1
+    compound_df = values_df.prod()
+    compound_df = compound_df - 1
+    return compound_df
+
+def _run_multiprocess_probabilistic_performance_batch(roi_performance: pd.DataFrame, days: int, iterations: int, queue: Queue) -> None:
+    """
+    Run the stochastic compounded performance in a multiprocessing pool.
+
+    """
+    results_list = []
+    for i in range(iterations):
+        results_list.append(_stochastic_compounded_single_performance(roi_performance = roi_performance, days=days))
+    queue.put(results_list)
+
+def probabilistic_performance(roi_performance: pd.DataFrame, days: int = 1, iterations: int = 20_000) -> pd.DataFrame:
+    """
+    Get the probabilistic performance of the backtest based on empirical ROI data.
+    
+    To get the performance, we compound the daily returns over a number of days.
+    
+    To speed up the process, we use multiprocessing.
+    
+    """
+    results_list = []
+    iterations_per_batch = 1_000
+    batchs = iterations // iterations_per_batch
+    ctx = get_context("spawn")
+    manager = Manager()
+    queue = manager.Queue()
+
+    with ctx.Pool() as pool:
+        pool.starmap(_run_multiprocess_probabilistic_performance_batch, [(roi_performance, days, iterations_per_batch, queue) for _ in range(batchs)])
+    while not queue.empty():
+        batch_results_list = queue.get()
+        results_list.extend(batch_results_list)
+    results_df = pd.DataFrame(results_list)
+    return results_df
+
+
+# PLOTTING FUNCTIONS -----------------------------------------------------------
+def plot_roi_performance(number_portfolios: int,
+                         roi_perfo: pd.DataFrame,
+                        time_granularity: Literal['D','W','M','Q','Y'] = 'D') -> None:
+    """
+    Plot the performance of the backtest based on the ROI.
+
+    """
+    def get_prob_tickers_labels(ticks_labels):
+        """
+        Get rid of the 0% on the y-axis and make sure that the labels are not too long.
+
+        """
+        tick_labels_format = []
+        magnitude = int(np.ceil(np.abs(np.log10(ticks_labels[1]))) + 2)
+        for tick in ticks_labels:
+            if tick != 0:
+                tick = str(tick)
+                if len(tick) > magnitude:
+                    tick = f'{tick[:magnitude + 1]}%'
+                else:
+                    tick = f'{tick}%'
+                tick_labels_format.append(tick)
+                
+            else:
+                tick_labels_format.append('')
+        return tick_labels_format
+    
+    coloured_markers = get_coloured_markers()
+    coloured_markers_number = len(coloured_markers)
+    time_label = TIME_GRANULARITY_MAP[time_granularity]['label']
+    time_value = TIME_GRANULARITY_MAP[time_granularity]['value']
+    labels_size = 14
+    tickers_size = 12
+    fig, ax = plt.subplots(figsize=(15, 15))
+    ax.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
+    ax.tick_params(axis='y', which="both", left=False, labelleft=False, right=False, labelright=False)
+    gs = gridspec.GridSpecFromSubplotSpec(2, 2,
+                                            subplot_spec=ax.get_subplotspec(),
+                                            height_ratios=[3, 6],
+                                            width_ratios=[6, 3],
+                                            hspace=0,
+                                            wspace=0)
+    # Create subplots within the GridSpec
+    ax_scatter = fig.add_subplot(gs[1, 0])
+    ax_hist_hold = fig.add_subplot(gs[0, 0])
+    ax_hist_str = fig.add_subplot(gs[1, 1])
+    ax_boxes = fig.add_subplot(gs[0, 1])
+    ax_hist_hold.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
+    ax_hist_str.tick_params(axis='y', which="both", left=False, labelleft=False, right=False, labelright=False)
+    cols_roi = ['roi', 'hold_roi']
+    rois_values = roi_perfo[cols_roi].values
+    min_roi = np.min(rois_values)
+    max_roi = np.max(rois_values)
+    roi_span = max_roi - min_roi
+    max_displ_roi = max_roi + 0.2 * roi_span
+    min_displ_roi = min_roi - 0.2 * roi_span
+    counter = 0
+    periods = roi_perfo['timestart'].unique()
+    number_timeperiods = len(periods)
+    number_simulations = number_timeperiods * number_portfolios
+    simulations_info = f"Number of time periods: {number_timeperiods}\nNumber of portfolios: {number_portfolios}\nNumber of simulations: {number_simulations}"
+    ax_scatter.axhline(y=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+    ax_scatter.axvline(x=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+    # Diagonal line for reference Hold = Strategy
+    ax_scatter.plot([min_displ_roi, max_displ_roi], [min_displ_roi, max_displ_roi], color='orange', linestyle='--', linewidth=0.5, alpha=0.6)
+    ax_scatter.text(x=(min_displ_roi*0.99), y=(min_displ_roi*0.96), s='Same performance', color='orange', fontsize=9, ha='left', va='bottom', rotation=45)
+    # Diagonal line twice better than Hold
+    ax_scatter.plot([min_displ_roi, 0], [min_displ_roi/2, 0], color='green', linestyle='--', linewidth=0.5, alpha=0.6)
+    ax_scatter.plot([0, max_displ_roi], [0, max_displ_roi*2], color='green', linestyle='--', linewidth=0.5, alpha=0.6)
+    ax_scatter.text(x=(min_displ_roi*0.99), y=(min_displ_roi*0.49), s='2x Better', color='green', fontsize=9, ha='left', va='bottom', rotation=26.57)
+    # Diagonal line 5x better than Hold
+    ax_scatter.plot([min_displ_roi, 0], [min_displ_roi/5, 0], color='green', linestyle=':', linewidth=0.7, alpha=0.9)
+    ax_scatter.plot([0, max_displ_roi], [0, max_displ_roi*5], color='green', linestyle=':', linewidth=0.7, alpha=0.9)
+    ax_scatter.text(x=(min_displ_roi*0.99), y=(min_displ_roi*0.195), s='5x Better', color='green', fontsize=9, ha='left', va='bottom', rotation=11.31)
+    # Diagonal line twice worse than Hold
+    ax_scatter.plot([min_displ_roi, 0], [min_displ_roi*2, 0], color='red', linestyle='--', linewidth=0.5, alpha=0.6)
+    ax_scatter.plot([0, max_displ_roi], [0, max_displ_roi/2], color='red', linestyle='--', linewidth=0.5, alpha=0.6)
+    ax_scatter.text(x=(min_displ_roi*0.55), y=(min_displ_roi*0.99), s='2x Worse', color='red', fontsize=9, ha='left', va='bottom', rotation=63.43)
+    # Diagonal line 5x worse than Hold
+    ax_scatter.plot([min_displ_roi, 0], [min_displ_roi*5, 0], color='red', linestyle=':', linewidth=0.7, alpha=0.9)
+    ax_scatter.plot([0, max_displ_roi], [0, max_displ_roi/5], color='red', linestyle=':', linewidth=0.7, alpha=0.9)
+    ax_scatter.text(x=(min_displ_roi*0.26), y=(min_displ_roi*0.99), s='5x Worse', color='red', fontsize=9, ha='left', va='bottom', rotation=78.69)
+    for timestart in periods:
+        # As we have a limited number of markers, we need to recycle them.
+        marker, color = coloured_markers[counter % len(coloured_markers)]
+        x = roi_perfo[roi_perfo['timestart'] == timestart]['hold_roi']
+        y = roi_perfo[roi_perfo['timestart'] == timestart]['roi']
+        label = timestart
+        ax_scatter.scatter(x=x, y=y, label=label, color=color, marker=marker, alpha=0.1, s=120)
+        counter += 1
+    # SCATTER PLOT
+    ax_scatter.set_xlabel(f'Hold {time_label} ROI (%)', fontsize=labels_size)
+    ax_scatter.set_ylabel(f'Strategy {time_label} ROI (%)', fontsize=labels_size)
+    if len(periods) <= 40:
+        ax_scatter.legend(fontsize='small')
+    ax_scatter.grid(True)
+    ax_scatter.xaxis.set_minor_locator(AutoMinorLocator())
+    ax_scatter.yaxis.set_minor_locator(AutoMinorLocator())
+    ax_scatter.grid(which="both")
+    ax_scatter.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray')
+    ax_scatter.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black')
+    ax_scatter.set_xlim(min_displ_roi, max_displ_roi)
+    ax_scatter.set_ylim(min_displ_roi, max_displ_roi)
+    # # Convert the x and y axis values to percentage
+    ax_scatter.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+    ax_scatter.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
+    # Use tick_params to set the font size of the tick labels
+    ax_scatter.tick_params(axis='x', labelsize=tickers_size, rotation=-90)
+    ax_scatter.tick_params(axis='y', labelsize=tickers_size)
+    ## Print note
+    ax_scatter.annotate(
+        simulations_info,
+        xy=(0.99, 0),
+        xycoords="axes fraction",
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        alpha=1,
+    )
+    # HISTOGRAMS
+    # Probabilites calculation
+    bins = np.linspace(min_displ_roi, max_displ_roi, 100)
+    ## Hold ROI
+    hold_roi = roi_perfo.hold_roi.copy()
+    hist_hold_roi, bins_hold_roi = np.histogram(hold_roi, bins=bins)
+    prob_hold_roi = hist_hold_roi / hist_hold_roi.sum()
+    cum_prob_hold_roi = np.cumsum(prob_hold_roi)
+    ## Strategy ROI
+    strat_roi = roi_perfo.roi.copy()
+    hist_strat_roi, bins_strat_roi = np.histogram(strat_roi, bins=bins)
+    prob_strat_roi = hist_strat_roi / hist_strat_roi.sum()
+    cum_prob_strat_roi = np.cumsum(prob_strat_roi)
+    # Display the histograms
+    ## Hold ROI
+    ax_hist_hold.axvline(x=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+    ax_hist_hold.bar(bins_hold_roi[:-1], prob_hold_roi, width=np.diff(bins_hold_roi), alpha=0.3, color='blue')
+    ax_hist_hold.bar(bins_hold_roi[:-1], prob_hold_roi, width=np.diff(bins_hold_roi), alpha=0.3, color='blue')
+    ax_hist_hold.set_xlim(min_displ_roi, max_displ_roi)
+    ax_hist_hold.xaxis.set_minor_locator(AutoMinorLocator())
+    ax_hist_hold.yaxis.set_minor_locator(AutoMinorLocator())
+    ax_hist_hold.grid(which="both")
+    ax_hist_hold.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray')
+    ax_hist_hold.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black')
+    ax_hist_hold.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+    ax_hist_hold.tick_params(axis='y', labelsize=tickers_size)
+    ax_hist_hold.set_ylabel('Hold Probabilitly (%)', fontsize=labels_size)
+    ### Avoid displaying 0% on the y-axis
+    yticks = ax_hist_hold.get_yticks()
+    ytick_labels = get_prob_tickers_labels(yticks)
+    ax_hist_hold.yaxis.set_major_locator(FixedLocator(yticks))
+    ax_hist_hold.set_yticklabels(ytick_labels)
+    ## Cum Hold ROI
+    ax_hist_hold_cum = ax_hist_hold.twinx()
+    ax_hist_hold_cum.plot(bins_hold_roi[:-1], cum_prob_hold_roi, color='purple', label='Cumulative Probability')
+    ax_hist_hold_cum.set_ylim(0, 1)
+    # ax_hist_hold_cum.set_yticks([])
+    # ax_hist_hold_cum.set_yticklabels([])
+    ax_hist_hold_cum.tick_params(axis='y', which="both", left=False, labelleft=False, right=False, labelright=False)
+    ax_hist_hold_cum.legend(fontsize='small')
+    ax_hist_hold_cum.axhline(y=0.25, color='red', linestyle='--', linewidth=0.8)
+    ax_hist_hold_cum.text(x=max_roi, y=0.26, s='Cum. Prob. 25%', color='red', fontsize=9, ha='right', va='bottom')
+    ax_hist_hold_cum.axhline(y=0.5, color='orange', linestyle='--', linewidth=0.8)
+    ax_hist_hold_cum.text(x=max_roi, y=0.51, s='Cum. Prob. 50%', color='orange', fontsize=9, ha='right', va='bottom')
+    ax_hist_hold_cum.axhline(y=0.75, color='green', linestyle='--', linewidth=0.8)
+    ax_hist_hold_cum.text(x=max_roi, y=0.76, s='Cum. Prob. 75%', color='green', fontsize=9, ha='right', va='bottom')
+    ## Strategy ROI
+    ax_hist_str.axhline(y=0, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+    ax_hist_str.barh(bins_strat_roi[:-1], prob_strat_roi, height=np.diff(bins_strat_roi), alpha=0.3, color='blue')
+    ax_hist_str.set_ylim(min_displ_roi, max_displ_roi)
+    ax_hist_str.xaxis.set_minor_locator(AutoMinorLocator())
+    ax_hist_str.yaxis.set_minor_locator(AutoMinorLocator())
+    ax_hist_str.grid(which="both")
+    ax_hist_str.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray')
+    ax_hist_str.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black')
+    ax_hist_str.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
+    ax_hist_str.tick_params(axis='x', labelsize=tickers_size, rotation=-90)
+    ax_hist_str.set_xlabel('Strategy Probabilitly (%)', fontsize=labels_size)
+    ### Avoid displaying 0% on the y-axis
+    xticks = ax_hist_str.get_xticks()
+    xtick_labels = get_prob_tickers_labels(xticks)
+    ax_hist_str.xaxis.set_major_locator(FixedLocator(xticks))
+    ax_hist_str.set_xticklabels(xtick_labels)
+    ## Cum Strategy ROI
+    ax_hist_str_cum = ax_hist_str.twiny()
+    ax_hist_str_cum.plot(cum_prob_strat_roi, bins_strat_roi[:-1], color='purple', label='Cumulative Probability')
+    ax_hist_str_cum.set_xlim(0, 1)
+    # ax_hist_str_cum.set_xticks([])
+    # ax_hist_str_cum.set_xticklabels([])
+    ax_hist_str_cum.tick_params(axis='x', which="both", top=False, labeltop=False, bottom=False, labelbottom=False)
+    ax_hist_str_cum.axvline(x=0.25, color='red', linestyle='--', linewidth=0.8)
+    ax_hist_str_cum.text(x=0.26, y=max_roi, s='Cum. Prob. 25%', color='red', fontsize=9, ha='left', va='top', rotation=-90)
+    ax_hist_str_cum.axvline(x=0.5, color='orange', linestyle='--', linewidth=0.8)
+    ax_hist_str_cum.text(x=0.51, y=max_roi, s='Cum. Prob. 50%', color='orange', fontsize=9, ha='left', va='top', rotation=-90)
+    ax_hist_str_cum.axvline(x=0.75, color='green', linestyle='--', linewidth=0.8)
+    ax_hist_str_cum.text(x=0.76, y=max_roi, s='Cum. Prob. 75%', color='green', fontsize=9, ha='left', va='top', rotation=-90)
+    # BOX PLOT
+    # Simulate data (replace this with your actual data)
+    simulated_compounded_returns = probabilistic_performance(roi_performance = roi_perfo,
+                                                             days = time_value)
+    # To avoid having problems with the log scale, we add 1 to the compounded returns.
+    simulated_compounded_returns = simulated_compounded_returns + 1
+
+    # Create the boxplot on the specific Axes object
+    sns.boxplot(data=simulated_compounded_returns, palette="pastel", width=0.6, linewidth=2.5, ax=ax_boxes)
+    ax_boxes.set_yscale('log')
+    ax_boxes.axhline(y=1, color='darkgoldenrod', linestyle='-', linewidth=1.0)
+    # Enhance the plot with a descriptive title and labels
+    ax_boxes.set_ylabel(f'{time_label} Capital Growth', fontsize=labels_size)
+    ax_boxes.yaxis.set_label_position("right")
+
+    # Customize gridlines and layout
+    ax_boxes.tick_params(axis='x', labelsize=labels_size, top=True, labeltop=True, bottom=False, labelbottom=False)
+    ax_boxes.tick_params(axis='y', which='both', labelsize=tickers_size, left=False, labelleft=False, right=True, labelright=True)
+    number_minor_ticks = 10
+    ax_boxes.yaxis.set_major_locator(LogLocator(base=2.0, numticks=10))
+    ax_boxes.yaxis.set_minor_locator(LogLocator(base=2.0, subs=np.arange(1, int(number_minor_ticks/2)) * (1/number_minor_ticks), numticks=number_minor_ticks))
+    ax_boxes.yaxis.set_major_formatter(FuncFormatter(to_percent_log_growth))
+    ax_boxes.yaxis.set_minor_formatter(FuncFormatter(to_percent_log_growth))
+    ax_boxes.grid(which="minor", alpha=0.3, linestyle='--', linewidth=0.5, color='gray', axis='y')
+    ax_boxes.grid(which="major", alpha=0.5, linestyle='-', linewidth=1.0, color='black', axis='y')
+    
+    ax.set_title(f'{time_label} ROI', fontsize=22)
+    plt.show()
+
+
 @dataclass
 class TradingStrategy:
     """
@@ -76,20 +390,6 @@ class TradingStrategy:
         self.current_timestamp = self.initial_timestamp
         self.assets_symbols_list = self.historical_prices['base'].unique()
         self.create_portfolios()
-
-    # def portfolios_overview(self, agg: bool = False) -> pd.DataFrame:
-    #     """
-    #     Get an overview of the Portfolios.
-
-    #     """
-    #     portfolios_overview_list = []
-    #     for PF in self.Portfolios:
-    #         portfolios_overview_list.append(PF.info_pd.D)
-    #     overview_df = pd.DataFrame(portfolios_overview_list)
-    #     overview_df.reset_index(inplace=True, drop=False)
-    #     overview_df.rename(columns={'index': 'Portfolio index'}, inplace=True)
-    #     overview_df.set_index('Name', inplace=True)
-    #     return overview_df.T
     
     @property
     def portfolios_dfu(self) -> pd.DataFrame:
@@ -652,6 +952,54 @@ class TradingStrategy:
         """
         performace_df = pd.DataFrame(self.performance)
         return performace_df
+    
+    @property
+    def roi_performance_df(self) -> pd.DataFrame:
+        """
+        Property that provides the performance of the backtest based on the ROI.
+
+        """
+        cols_roi = ['roi', 'hold_roi']
+        col_timerange = 'timerange'
+        cols_needed = cols_roi + [col_timerange]
+        roi_perfo = pd.DataFrame(self.performance)[cols_needed].copy()
+        roi_perfo['timestart'] = roi_perfo[col_timerange].apply(lambda x: x[0])
+        return roi_perfo
+    
+    @property
+    def roi_performance_daily_df(self) -> pd.DataFrame:
+        """
+        Property that provides the performance of the backtest based on the ROI on a daily basis.
+        
+        """
+        def convert_returns_to_daily_returns(returns, timespan):
+            day= 24*3600
+            daily_returns = (1 + returns) ** (day/timespan) - 1
+            return daily_returns
+        roi_perfo = self.roi_performance_df.copy()
+        roi_perfo['timespan'] = roi_perfo.timerange.apply(lambda x: x[1]-x[0])
+        roi_perfo['roi'] = roi_perfo.apply(lambda x: convert_returns_to_daily_returns(x['roi'], x['timespan']), axis=1)
+        roi_perfo['hold_roi'] = roi_perfo.apply(lambda x: convert_returns_to_daily_returns(x['hold_roi'], x['timespan']), axis=1)
+        return roi_perfo
+
+    
+    # PLOTTING
+    def plot_roi_performance(self, time_granularity: Literal['D','W','M','Q','Y'] = 'D') -> None:
+        """
+        Plot the ROI performance of the strategy.
+        
+        """
+        roi_perfo_daily = convert_daily_performance(
+            roi_perfo=self.roi_performance_daily_df.copy(),
+        )
+        roi_perfo_time_adapted = change_roi_performance_time_granularity(
+            roi_perfo=roi_perfo_daily.copy(),
+            time_granularity=time_granularity,
+        )
+        plot_roi_performance(roi_perfo=roi_perfo_time_adapted,
+                             number_portfolios=self.number_of_portfolios,
+                             time_granularity=time_granularity)
+        
 
 @dataclass
 class MultiPeriodBacktest:
