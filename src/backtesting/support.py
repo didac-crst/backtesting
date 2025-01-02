@@ -4,6 +4,8 @@ import random
 from time import time
 from typing import Optional, Callable, Union
 
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import prettytable as pt
 from faker import Faker
@@ -246,3 +248,12 @@ def to_percent_log_growth(x: Union[int, float], pos) -> str:
 
     """
     return f"{(x-1) * 100:.0f}%"
+
+def save_plot_pdf(fig: plt.Figure, pdf_file_path: str) -> None:
+    """
+    Function to save a plot to a PDF file.
+
+    """
+    with PdfPages(pdf_file_path) as pdf:
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close()

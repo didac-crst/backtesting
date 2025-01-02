@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import os
 from typing import Optional, Literal, Union
 
 import pandas as pd
@@ -25,6 +26,7 @@ from .support import (
     check_property_update,
     move_to_end,
     max_2_numbers,
+    save_plot_pdf,
     COLOR_PALETTE_DICT,
 )
 from .record_objects import LITERAL_TRANSACTION_REASON
@@ -47,6 +49,7 @@ class Portfolio(Asset):
     time_chart_resolution: int = 400
     threshold_buy: float = 0.0 # This is the signal threshold to buy an asset - Only for display purposes
     threshold_sell: float = 0.0 # This is the signal threshold to sell an asset - Only for display purposes
+    output_folder_path: str = "./"
 
     # Portfolio internal methods ------------------------------------------------
 
@@ -241,53 +244,6 @@ class Portfolio(Asset):
             info["Assets Traded"] = len(self.assets_traded_list)
         return info
     
-    # @property
-    # @check_property_update
-    # def info(self) -> dict[str, str]:
-    #     """
-    #     Property to get the portfolio information as a dictionary.
-
-    #     """
-    #     info = dict()
-    #     self.empty_negligible_assets()
-    #     equity_value = self.equity_value
-    #     quote_balance = self.balance
-    #     quote_equity_ratio = quote_balance / equity_value
-    #     info["Name"] = self.name.replace('_',' ').title()
-    #     info["Cash currency"] = self.symbol
-    #     info["Transfer commission"] = display_percentage(self.commission_transfer)
-    #     info["Trade commission"] = display_percentage(self.commission_trade)
-    #     info["Time start"] = self.period[0]
-    #     info["Time end"] = self.period[1]
-    #     info["Timespan"] = display_price(self.timespan,"seconds")
-    #     info["Invested capital"] = display_price(self.invested_capital, self.symbol)
-    #     info["Disbursed capital"] = display_price(self.disbursed_capital, self.symbol)
-    #     info["Cash balance"] = display_price(self.balance, self.symbol)
-    #     info["Cash balance ratio"] = display_percentage(quote_equity_ratio)
-    #     # If there are no historical prices, it can't display any assets information.
-    #     if not self.historical_prices.empty:
-    #         assets_value = self.assets_value
-    #         assets_equity_ratio = assets_value / equity_value
-    #         total_gains = self.gains
-    #         realized_gains = self.realized_gains_sum
-    #         paper_gains = total_gains - realized_gains
-    #         info["Assets value"] = display_price(self.assets_value, self.symbol)
-    #         info["Assets value ratio"] = display_percentage(assets_equity_ratio)
-    #         info["Equity value"] = display_price(self.equity_value, self.symbol)
-    #         info["Transactions"] = display_integer(self.transactions_count())
-    #         info["Amount traded"] = display_price(self.transactions_sum(), self.symbol)
-    #         info["ROI"] = display_percentage(self.roi)
-    #         info["Total Gains"] = display_price(total_gains, self.symbol)
-    #         info["Realized Gains"] = display_price(realized_gains, self.symbol)
-    #         info["Paper Gains"] = display_price(paper_gains, self.symbol)
-    #         info["Commissions"] = display_price(self.total_commissions, self.symbol)
-    #         info["Commissions/Gains ratio"] = self.commission_gains_ratio
-    #         info["Hold ROI (Theoretical)"] = display_percentage(self.hold_roi)
-    #         info["Hold Gains (Theoretical)"] = display_price(self.hold_gains, self.symbol)
-    #         info["ROI Performance (vs Hold)"] = display_percentage(self.roi_vs_hold_roi)
-    #         info["Assets Traded"] = len(self.assets_traded_list)
-    #     return info
-    
     @property
     @check_property_update
     def info_pd(self) -> pd.DataFrame:
@@ -327,6 +283,70 @@ class Portfolio(Asset):
         )
         info_units = SeriesUnits(data=info_s, units=units)
         return info_units
+
+    def export_info_pdf(self) -> None:
+        """
+        Method to export the portfolio information as a PDF.
+
+        """
+        # Example DataFrame (replace this with your actual TS1().info_pd.D DataFrame)
+        portfolio_df = pd.DataFrame(self.info_pd.D).reset_index()
+        portfolio_df = portfolio_df.iloc[3:]
+
+        # PDF file to save
+        output_file = "portfolio_info.pdf"
+
+        # Create a figure and axis
+        fig, ax = plt.subplots(figsize=(11, 15))  # Adjust size as needed
+        
+        # Add padding on top for the title
+        fig.subplots_adjust(top=1.0, bottom=0.0)
+        
+        # Add a title
+        fig.suptitle("Portfolio Summary", fontsize=30, fontweight="bold", y=0.94)
+        
+        # Hide the axes
+        ax.axis("off")
+        
+        # Create a table from the DataFrame
+        table = ax.table(
+            cellText=portfolio_df.values,  # Data for the table
+            cellLoc="center",  # Default cell alignment
+            loc="center",  # Position the table in the center of the figure
+        )
+        
+        # Set the font size and style for the table
+        table.auto_set_font_size(False)
+        table.set_fontsize(15)
+        
+        # Set column width
+        table.auto_set_column_width(col=list(range(len(portfolio_df.columns))))  # Adjust column widths
+        
+        # Apply some fancier styling
+        for (row, col), cell in table.get_celld().items():
+            if row % 2 == 0:  # Alternate row background color for even rows
+                cell.set_facecolor('#eeeee0')  # Light grey for even rows
+            else:  # Odd rows
+                cell.set_facecolor('#eee0ee')  # Light green for odd rows
+            
+            # Customize column text alignment
+            if col == 0:  # First column
+                cell._text.set_ha("left")  # Align text to the left
+                cell._text.set_fontweight('bold')
+            else:  # For other columns
+                cell._text.set_ha("right")  # Align text to the right
+
+            # Set row height
+            cell.set_height(0.035)  # Adjust the row height (increase for more padding)
+            
+            # Set the edge color for each cell
+            cell.set_edgecolor('black')  # Set border color for each cell
+            cell.set_linewidth(1)  # Set border width
+
+        # Save the figure to the PDF
+        pdf_file_path = os.path.join(self.output_folder_path, output_file)
+        save_plot_pdf(fig=fig, pdf_file_path=pdf_file_path)
+        plt.close(fig)
 
     @property
     @check_property_update
@@ -382,70 +402,6 @@ class Portfolio(Asset):
             else:
                 text += f"  -> Assets Traded: None\n"
         return text
-        
-    # @property
-    # @check_property_update
-    # def text_repr(self) -> str:
-    #     """
-    #     Property to display the portfolio information as a string.
-        
-    #     """
-    #     self.empty_negligible_assets()
-    #     equity_value = self.equity_value
-    #     quote_balance = self.balance
-    #     quote_equity_ratio = quote_balance / equity_value
-    #     text = (
-    #             f"Portfolio ({self.name}):\n"
-    #             f"  -> Cash currency: {self.symbol}\n"
-    #             f"  -> Transfer commission: {display_percentage(self.commission_transfer)}\n"
-    #             f"  -> Trade commission: {display_percentage(self.commission_trade)}\n"
-    #             f"  -> Timerange: {self.period}\n"
-    #             f"  -> Timespan: {display_price(self.timespan,"seconds")}\n"
-    #             f"  -> Invested capital: {display_price(self.invested_capital, self.symbol)}\n"
-    #             f"  -> Disbursed capital: {display_price(self.disbursed_capital, self.symbol)}\n"
-    #             f"  -> Cash balance: {display_price(self.balance, self.symbol)}"
-    #             f" ({display_percentage(quote_equity_ratio)})\n"
-    #     )
-    #     # If there are no historical prices, it can't display any assets information.
-    #     if self.historical_prices.empty:
-    #         text = (
-    #             "!!! NO DATA ASSETS' PRICES AVAILABLE YET !!!\n"
-    #             "    -> Please update assets' prices.\n\n"
-    #             f"{text}"
-    #         )
-    #     else:
-    #         assets_value = self.assets_value
-    #         assets_equity_ratio = assets_value / equity_value
-    #         total_gains = self.gains
-    #         realized_gains = self.realized_gains_sum
-    #         paper_gains = total_gains - realized_gains
-    #         text = (
-    #             f"{text}"
-    #             f"  -> Assets value: {display_price(self.assets_value, self.symbol)}"
-    #             f" ({display_percentage(assets_equity_ratio)})\n"
-    #             f"  -> Equity value: {display_price(self.equity_value, self.symbol)}\n"
-    #             f"  -> Transactions: {display_integer(self.transactions_count())}\n"
-    #             f"  -> Amount traded: {display_price(self.transactions_sum(), self.symbol)}\n"
-    #             f"  -> ROI: {display_percentage(self.roi)}\n"
-    #             f"  -> Total Gains: {display_price(total_gains, self.symbol)}\n"
-    #             f"  -> Realized Gains: {display_price(realized_gains, self.symbol)}\n"
-    #             f"  -> Paper Gains: {display_price(paper_gains, self.symbol)}\n"
-    #             f"  -> Commissions: {display_price(self.total_commissions, self.symbol)}\n"
-    #             f"  -> Commissions/Gains ratio: {self.commission_gains_ratio}\n"
-    #             f"  -> Hold ROI (Theoretical): {display_percentage(self.hold_roi)}\n"
-    #             f"  -> Hold Gains (Theoretical): {display_price(self.hold_gains, self.symbol)}\n"
-    #             f"  -> ROI Performance (vs Hold): {display_percentage(self.roi_vs_hold_roi)}\n"
-    #             f"  -> Assets Traded: "
-    #         )
-    #         if len(self.assets_traded_list) > 0:
-    #             text += (
-    #                 f"{len(self.assets_traded_list)}\n"
-    #                 f"{self.assets_pretty_table}\n\n"
-    #             )
-    #         # This applies only in case of having updated the prices but not having any transaction yet.
-    #         else:
-    #             text += "None\n\n"
-    #     return text
 
     def __repr__(self) -> str:
         """
@@ -1594,9 +1550,12 @@ class Portfolio(Asset):
     
     # Portfolio ploting methods ------------------------------------------------
 
-    def plot_portfolio(self, assets: Union[int,str,list[str]] = 5) -> None:
+    def plot_portfolio(self, assets: Union[int,str,list[str]] = 10, export_pdf: bool = False) -> None:
         """
         Method to plot the portfolio equity and the assets' prices over time.
+        
+        assets number is the number of assets to plot twice - once for the top performers and once for the bottom performers.
+        assets = 10 means 10 top and 10 bottom performers.
 
         """
         # We need to know which assets to plot
@@ -1860,8 +1819,17 @@ class Portfolio(Asset):
         # Adjust layout to add space between main subplots
         plt.subplots_adjust(hspace=0.4)
         
-        # Show the plot
-        plt.show()
+        # Adjust layout to minimize blank space
+        fig.tight_layout()
+        
+        if export_pdf:
+            # Save the plot to a PDF file
+            output_file = "portfolio_assets.pdf"
+            pdf_file_path = os.path.join(self.output_folder_path, output_file)
+            save_plot_pdf(fig=fig, pdf_file_path=pdf_file_path)
+            plt.close()
+        else:
+            plt.show()
 
     def plot_benchmark(self, fig_ax: Optional[tuple] = None, log_scale: bool = True) -> None:
         """
@@ -2255,7 +2223,7 @@ class Portfolio(Asset):
             colors[label] = predefined_colors[color_index]
         return colors
 
-    def plot_summary(self, log_scale: bool = True) -> None:
+    def plot_summary(self, log_scale: bool = True, export_pdf: bool = False) -> None:
         """
         Method to plot the portfolio summary.
 
@@ -2272,5 +2240,14 @@ class Portfolio(Asset):
         self.plot_assets_share((fig, ax[1]))
         self.plot_transactions((fig, ax[2]))
         self.plot_realized_gains((fig, ax[3]))
-
-        plt.show()
+        
+        # Adjust layout to minimize blank space
+        fig.tight_layout()
+        if export_pdf:
+            # Save the plot to a PDF file
+            output_file = "portfolio_summary.pdf"
+            pdf_file_path = os.path.join(self.output_folder_path, output_file)
+            save_plot_pdf(fig=fig, pdf_file_path=pdf_file_path)
+            plt.close()
+        else:
+            plt.show()
