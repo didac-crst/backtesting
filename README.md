@@ -42,13 +42,13 @@ import pandas as pd
 from backtesting import Portfolio, TradingStrategy, MultiPeriodBacktest
 
 class SMACrossover(TradingStrategy):
-    short = 20
-    long  = 50
+short = 20
+long  = 50
 
-    def generate_signals(self, prices: pd.Series) -> pd.Series:
-        fast = prices.rolling(self.short).mean()
-        slow = prices.rolling(self.long).mean()
-        return (fast > slow).astype(int)  # 1 = long, 0 = flat
+def generate_signals(self, prices: pd.Series) -> pd.Series:
+fast = prices.rolling(self.short).mean()
+slow = prices.rolling(self.long).mean()
+return (fast > slow).astype(int)  # 1 = long, 0 = flat
 
 # Load your price series (index must be datetime) e.g. from CSV
 prices = pd.read_csv("EURUSD_daily.csv", index_col=0, parse_dates=True)["close"]
