@@ -1,4 +1,3 @@
-````
 # Backtesting
 
 **Backtesting** is a lightweight, composable Python toolkit that lets you model portfolios and rigorously evaluate rule-based trading strategies against historical market data.  
@@ -126,4 +125,3 @@ Trading involves substantial risk; use these tools responsibly and at your own r
 ## License
 
 Backtesting is distributed under the **MIT** License. see [`LICENSE`](LICENSE).
-````
